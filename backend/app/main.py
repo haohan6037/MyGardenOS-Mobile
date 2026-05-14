@@ -349,12 +349,20 @@ def dev_user(db: Session = Depends(get_db)):
     return current_user(db)
 
 @app.get("/profile", response_model=UserOut)
-def get_profile(db: Session = Depends(get_db)):
-    return current_user(db)
+def get_profile(
+    authorization: Optional[str] = Header(default=None),
+    db: Session = Depends(get_db),
+):
+    user = _get_user_from_bearer(authorization, db)
+    return user
 
 @app.patch("/profile", response_model=UserOut)
-def update_profile(payload: ProfileUpdate, db: Session = Depends(get_db)):
-    user = current_user(db)
+def update_profile(
+    payload: ProfileUpdate,
+    authorization: Optional[str] = Header(default=None),
+    db: Session = Depends(get_db),
+):
+    user = _get_user_from_bearer(authorization, db)
     for field in ["username", "gender", "address"]:
         value = getattr(payload, field)
         if value is not None:
