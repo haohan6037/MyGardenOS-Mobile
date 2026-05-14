@@ -40,6 +40,7 @@ from app.schemas.dto import (
     ProfileUpdate,
     RequestEmailCodeIn,
     RequestEmailCodeOut,
+    LoginWithPasswordIn,
     SetPasswordIn,
     SettingsOut,
     SettingsUpdate,
@@ -330,6 +331,20 @@ def verify_password(payload: VerifyPasswordIn, db: Session = Depends(get_db)):
         raise HTTPException(404, "User not found")
     if not user.password_hash:
         raise HTTPException(409, "Password not set. Use /auth/password/set")
+    if not _verify_password(payload.password, user.password_hash):
+        raise HTTPException(401, "Incorrect password")
+
+    return _auth_out(db, user)
+
+
+@app.post("/auth/login", response_model=AuthSessionOut)
+def login_with_password(payload: LoginWithPasswordIn, db: Session = Depends(get_db)):
+    email = _normalize_email(payload.email)
+    user = db.query(User).filter(User.email == email).first()
+    if not user:
+        raise HTTPException(404, "User not found")
+    if not user.password_hash:
+        raise HTTPException(409, "Password not set. Please register first")
     if not _verify_password(payload.password, user.password_hash):
         raise HTTPException(401, "Incorrect password")
 

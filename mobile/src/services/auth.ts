@@ -42,6 +42,12 @@ export const auth = {
       body: JSON.stringify({ verify_token, password }),
     }),
 
+  loginWithPassword: (email: string, password: string) =>
+    request<AuthSession>('/auth/login', undefined, {
+      method: 'POST',
+      body: JSON.stringify({ email, password }),
+    }),
+
   getMe: (token: string) =>
     request<{ user: AuthUser }>('/auth/me', token),
 

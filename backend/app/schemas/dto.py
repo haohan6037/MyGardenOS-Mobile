@@ -125,6 +125,11 @@ class VerifyPasswordIn(BaseModel):
     password: str
 
 
+class LoginWithPasswordIn(BaseModel):
+    email: EmailStr
+    password: str
+
+
 class AuthSessionOut(BaseModel):
     access_token: str
     token_type: str = "bearer"

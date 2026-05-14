@@ -1,15 +1,15 @@
 import React, { useState } from 'react';
-import { Alert, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Alert, Image, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { colors } from '../theme/colors';
 import { auth } from '../services/auth';
 import { useAuth } from '../contexts/AuthContext';
 
-type LoginStep = 'email' | 'code' | 'password';
+type LoginStep = 'entry' | 'login' | 'email' | 'code' | 'password';
 
 export function LoginScreen() {
   const { login } = useAuth();
-  const [step, setStep] = useState<LoginStep>('email');
+  const [step, setStep] = useState<LoginStep>('entry');
   const [email, setEmail] = useState('');
   const [code, setCode] = useState('');
   const [password, setPassword] = useState('');
@@ -18,6 +18,26 @@ export function LoginScreen() {
   const [loading, setLoading] = useState(false);
   const [debugCode, setDebugCode] = useState('');
   const [timer, setTimer] = useState(0);
+
+  const loginWithPassword = async () => {
+    if (!email.includes('@')) {
+      Alert.alert('Error', 'Please enter a valid email');
+      return;
+    }
+    if (password.length < 6) {
+      Alert.alert('Error', 'Password must be at least 6 characters');
+      return;
+    }
+    setLoading(true);
+    try {
+      const result = await auth.loginWithPassword(email, password);
+      await login(result.access_token, result.user);
+    } catch (err: any) {
+      Alert.alert('Error', err.message || 'Login failed');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const requestCode = async () => {
     if (!email.includes('@')) {
@@ -89,10 +109,55 @@ export function LoginScreen() {
   return (
     <View style={s.root}>
       <StatusBar style="dark" />
+      {step === 'entry' && (
+        <View style={s.container}>
+          <View style={s.brandRow}>
+            <Image source={require('../images/Squire Logo.png')} style={s.logo} resizeMode="contain" />
+            <Text style={s.brandText}>MYGARDENOS</Text>
+          </View>
+          <Text style={s.subtitle}>Welcome back to smart lawn care</Text>
+          <Pressable style={s.button} onPress={() => setStep('login')}>
+            <Text style={s.buttonText}>Log In</Text>
+          </Pressable>
+          <Pressable style={s.secondaryButton} onPress={() => setStep('email')}>
+            <Text style={s.secondaryButtonText}>Register</Text>
+          </Pressable>
+        </View>
+      )}
+
+      {step === 'login' && (
+        <View style={s.container}>
+          <Text style={s.title}>Log In</Text>
+          <Text style={s.subtitle}>Sign in with email and password</Text>
+          <TextInput
+            style={s.input}
+            placeholder="Enter your email"
+            value={email}
+            onChangeText={setEmail}
+            editable={!loading}
+            keyboardType="email-address"
+          />
+          <TextInput
+            style={s.input}
+            placeholder="Enter your password"
+            value={password}
+            onChangeText={setPassword}
+            editable={!loading}
+            secureTextEntry
+          />
+          <Pressable style={[s.button, loading && s.buttonDisabled]} onPress={loginWithPassword} disabled={loading}>
+            <Text style={s.buttonText}>{loading ? 'Logging in...' : 'Continue'}</Text>
+          </Pressable>
+          <Pressable onPress={() => { setStep('entry'); setPassword(''); }}>
+            <Text style={s.link}>Back</Text>
+          </Pressable>
+        </View>
+      )}
+
       {step === 'email' && (
         <View style={s.container}>
-          <Text style={s.title}>Welcome</Text>
-          <Text style={s.subtitle}>Sign in with your email</Text>
+          <Text style={s.title}>Register</Text>
+          <Text style={s.subtitle}>Create account with your email</Text>
           <TextInput
             style={s.input}
             placeholder="Enter your email"
@@ -103,6 +168,9 @@ export function LoginScreen() {
           />
           <Pressable style={[s.button, loading && s.buttonDisabled]} onPress={requestCode} disabled={loading}>
             <Text style={s.buttonText}>{loading ? 'Sending...' : 'Send Verification Code'}</Text>
+          </Pressable>
+          <Pressable onPress={() => setStep('entry')}>
+            <Text style={s.link}>Back</Text>
           </Pressable>
         </View>
       )}
@@ -167,6 +235,23 @@ const s = StyleSheet.create({
     paddingHorizontal: 24,
     paddingTop: 40,
   },
+  brandRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    marginBottom: 18,
+  },
+  logo: {
+    width: 44,
+    height: 44,
+  },
+  brandText: {
+    fontSize: 26,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+    color: colors.green,
+  },
   title: {
     fontSize: 32,
     fontWeight: '700',
@@ -195,6 +280,20 @@ const s = StyleSheet.create({
     paddingVertical: 16,
     alignItems: 'center',
     marginBottom: 16,
+  },
+  secondaryButton: {
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: colors.green,
+    borderRadius: 12,
+    paddingVertical: 16,
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  secondaryButtonText: {
+    color: colors.green,
+    fontWeight: '700',
+    fontSize: 16,
   },
   buttonDisabled: {
     opacity: 0.6,
