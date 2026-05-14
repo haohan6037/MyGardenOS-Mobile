@@ -2,6 +2,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const API = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:8000';
 const TOKEN_KEY = 'auth_access_token';
+const TOKEN_VERSION_KEY = 'auth_token_version';
+const TOKEN_VERSION = '2';
 
 async function request<T>(path: string, token?: string, options?: RequestInit): Promise<T> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -44,14 +46,22 @@ export const auth = {
     request<{ user: AuthUser }>('/auth/me', token),
 
   saveToken: async (token: string) => {
-    await AsyncStorage.setItem(TOKEN_KEY, token);
+    await AsyncStorage.multiSet([
+      [TOKEN_KEY, token],
+      [TOKEN_VERSION_KEY, TOKEN_VERSION],
+    ]);
   },
 
   getToken: async () => {
+    const version = await AsyncStorage.getItem(TOKEN_VERSION_KEY);
+    if (version !== TOKEN_VERSION) {
+      await AsyncStorage.multiRemove([TOKEN_KEY, TOKEN_VERSION_KEY]);
+      return null;
+    }
     return AsyncStorage.getItem(TOKEN_KEY);
   },
 
   clearToken: async () => {
-    await AsyncStorage.removeItem(TOKEN_KEY);
+    await AsyncStorage.multiRemove([TOKEN_KEY, TOKEN_VERSION_KEY]);
   },
 };
