@@ -70,6 +70,10 @@ This repo is configured for Expo EAS iOS builds and GitHub Release publishing.
 
 Important: iOS cannot install an unsigned app directly from GitHub. A physical iPhone build must be signed through Apple Developer/TestFlight/EAS internal distribution.
 
+## Deployment runbook
+
+- Railway backend deployment runbook: `docs/railway-deployment.md`
+
 ## Tests/checks
 
 Backend:
