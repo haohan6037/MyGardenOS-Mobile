@@ -6,4 +6,4 @@ pydantic-settings==2.7.1
 email-validator==2.2.0
 pytest==8.3.4
 httpx==0.28.1
-resend==3.7.0
+resend==2.30.1
