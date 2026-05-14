@@ -3,12 +3,12 @@ import os
 import secrets
 from datetime import datetime, timedelta
 from hashlib import pbkdf2_hmac, sha256
-from typing import Optional
+from typing import Optional, Tuple
 
 try:
-    from resend import Resend
+    import resend as resend_sdk
 except ImportError:
-    Resend = None
+    resend_sdk = None
 from random import randint
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -133,27 +133,33 @@ def _verify_signed_token(token: str, expected_type: str) -> str:
     return _normalize_email(email)
 
 
-def _send_email_code(email: str, code: str) -> bool:
-    if not Resend:
-        return False
+def _send_email_code(email: str, code: str) -> Tuple[bool, Optional[str]]:
+    if not resend_sdk:
+        return False, "resend_sdk_not_installed"
     
     api_key = os.getenv("RESEND_API_KEY")
     if not api_key:
-        return False
+        return False, "missing_resend_api_key"
     
-    client = Resend(api_key=api_key)
+    resend_sdk.api_key = api_key
     try:
-        response = client.emails.send({
+        response = resend_sdk.Emails.send({
             "from": "MyGardenOS <info@mygardenos.com>",
             "to": email,
             "subject": "MyGardenOS verification code",
             "html": f"<p>Your MyGardenOS verification code is <strong>{code}</strong>.</p><p>It expires in {AUTH_CODE_TTL_MINUTES} minutes.</p>",
         })
-        return bool(response.get("id"))
+        if isinstance(response, dict):
+            message_id = response.get("id")
+        else:
+            message_id = getattr(response, "id", None)
+        if not message_id:
+            return False, "resend_missing_message_id"
+        return True, None
     except Exception as e:
         import logging
-        logging.getLogger(__name__).error(f"Resend email failed: {e}")
-        return False
+        logging.getLogger(__name__).error("Resend email failed: %s", e)
+        return False, str(e)
 
 
 def _create_auth_session(db: Session, user: User) -> str:
@@ -260,14 +266,16 @@ def request_email_code(payload: RequestEmailCodeIn, db: Session = Depends(get_db
     db.add(code_record)
     db.commit()
 
-    delivered = _send_email_code(email, code)
+    delivered, delivery_error = _send_email_code(email, code)
     if not delivered and not AUTH_DEBUG_CODES:
-        raise HTTPException(500, "Email delivery is not configured")
+        raise HTTPException(500, f"Email delivery failed: {delivery_error or 'unknown'}")
 
     return RequestEmailCodeOut(
-        status="sent",
+        status="sent" if delivered else "debug_only",
         expires_in_seconds=AUTH_CODE_TTL_MINUTES * 60,
+        delivered=delivered,
         debug_code=code if AUTH_DEBUG_CODES else None,
+        delivery_error=delivery_error if not delivered else None,
     )
 
 

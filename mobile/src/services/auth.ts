@@ -17,7 +17,7 @@ export type AuthSession = { access_token: string; user: AuthUser };
 
 export const auth = {
   requestCode: (email: string) =>
-    request<{ status: string; expires_in_seconds: number; debug_code?: string }>('/auth/email/request-code', undefined, {
+    request<{ status: string; expires_in_seconds: number; delivered: boolean; debug_code?: string; delivery_error?: string }>('/auth/email/request-code', undefined, {
       method: 'POST',
       body: JSON.stringify({ email }),
     }),

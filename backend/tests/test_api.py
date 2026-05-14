@@ -180,7 +180,7 @@ def test_email_code_password_auth_flow():
     send_res = client.post("/auth/email/request-code", json={"email": email})
     assert send_res.status_code == 200
     send_data = send_res.json()
-    assert send_data["status"] == "sent"
+    assert send_data["status"] in {"sent", "debug_only"}
     assert send_data.get("debug_code")
 
     verify_res = client.post(

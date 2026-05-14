@@ -1,4 +1,4 @@
-const API = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:8000';
+const API = process.env.EXPO_PUBLIC_API_URL || 'https://mygardenos-mobile-backend-production.up.railway.app';
 let authToken: string | null = null;
 
 export function setAuthToken(token: string | null) {

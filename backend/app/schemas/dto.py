@@ -99,7 +99,9 @@ class RequestEmailCodeIn(BaseModel):
 class RequestEmailCodeOut(BaseModel):
     status: str
     expires_in_seconds: int
+    delivered: bool = False
     debug_code: Optional[str] = None
+    delivery_error: Optional[str] = None
 
 
 class VerifyEmailCodeIn(BaseModel):

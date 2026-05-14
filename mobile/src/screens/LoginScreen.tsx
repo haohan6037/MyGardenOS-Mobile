@@ -30,7 +30,17 @@ export function LoginScreen() {
       setStep('code');
       setDebugCode(result.debug_code || '');
       setTimer(Math.ceil(result.expires_in_seconds));
-      Alert.alert('Code Sent', `Verification code sent to ${email}`);
+      if (result.delivered) {
+        Alert.alert(
+          'Code Sent',
+          `Verification code sent to ${email}. If you do not receive it, use the debug code shown below.`,
+        );
+      } else {
+        Alert.alert(
+          'Email not delivered',
+          `Switching to debug code login. Reason: ${result.delivery_error || 'unknown'}`,
+        );
+      }
     } catch (err: any) {
       Alert.alert('Error', err.message || 'Failed to send code');
     } finally {
