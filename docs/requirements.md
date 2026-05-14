@@ -8,7 +8,7 @@
 4. **Families**: list shows `happy family(1)` and member card; plus action sheet with Creating/Binding familie/Cancel; details show code/name/address/dissolve; address modal.
 5. **Notifications**: Device/System tabs, Unread/Read filters, empty `No news at this time`, settings page with two switches.
 6. **Help**: Advice and feedback, expandable Contact Us details, Operation Help list and PDF-like article detail.
-7. **About**: product placeholder, ALTVERSE/MyGardenOS version metadata, check updates, privacy, user agreement.
+7. **About**: product placeholder, MyGardenOS version metadata, check updates, privacy, user agreement.
 8. **General Settings**: Language, Region Auto, Clear Cache, English/Cancel action sheet.
 
 ## Backend

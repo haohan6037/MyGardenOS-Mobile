@@ -1,6 +1,6 @@
 # MyGardenOS
 
-MyGardenOS is an iOS development-test MVP inspired by the provided Altverse screenshots. It implements the visible app flows while robot/BLE integration is mocked.
+MyGardenOS is an iOS development-test MVP. It implements the visible app flows while robot/BLE integration is mocked.
 
 ## Stack
 
