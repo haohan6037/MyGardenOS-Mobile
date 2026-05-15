@@ -5,6 +5,25 @@ from app.main import app
 
 client = TestClient(app)
 
+
+def _auth_headers_for_user():
+    email = f"profile-{int(time.time() * 1000)}@example.com"
+    send_res = client.post("/auth/email/request-code", json={"email": email})
+    assert send_res.status_code == 200
+    code = send_res.json()["debug_code"]
+
+    verify_res = client.post("/auth/email/verify-code", json={"email": email, "code": code})
+    assert verify_res.status_code == 200
+    verify_token = verify_res.json()["verify_token"]
+
+    set_res = client.post(
+        "/auth/password/set",
+        json={"verify_token": verify_token, "password": "MyPass123"},
+    )
+    assert set_res.status_code == 200
+    token = set_res.json()["access_token"]
+    return email, {"Authorization": f"Bearer {token}"}
+
 # ── Health ────────────────────────────────────────────────────────────────────
 
 def test_health():
@@ -26,18 +45,18 @@ def test_dev_user():
 # ── Profile ───────────────────────────────────────────────────────────────────
 
 def test_get_profile():
-    res = client.get("/profile")
+    email, headers = _auth_headers_for_user()
+    res = client.get("/profile", headers=headers)
     assert res.status_code == 200
-    assert res.json()["email"] == "demo@example.com"
+    assert res.json()["email"] == email
 
 def test_update_profile():
-    res = client.patch("/profile", json={"username": "TestUser", "gender": "Female"})
+    _, headers = _auth_headers_for_user()
+    res = client.patch("/profile", json={"username": "TestUser", "gender": "Female"}, headers=headers)
     assert res.status_code == 200
     data = res.json()
     assert data["username"] == "TestUser"
     assert data["gender"] == "Female"
-    # restore
-    client.patch("/profile", json={"username": "Hector", "gender": "Male"})
 
 # ── Families ──────────────────────────────────────────────────────────────────
 

@@ -35,12 +35,14 @@ from app.schemas.dto import (
     FamilyCreate,
     FamilyOut,
     FamilyUpdate,
+    FamilyJoin,
     HelpArticleOut,
     NotificationOut,
     ProfileUpdate,
     RequestEmailCodeIn,
     RequestEmailCodeOut,
     LoginWithPasswordIn,
+    ResetPasswordIn,
     SetPasswordIn,
     SettingsOut,
     SettingsUpdate,
@@ -93,6 +95,18 @@ def _hash_password(password: str) -> str:
     iterations = 200000
     digest = pbkdf2_hmac("sha256", password.encode(), bytes.fromhex(salt), iterations).hex()
     return f"pbkdf2${iterations}${salt}${digest}"
+
+
+def _validate_password_rules(password: str) -> Optional[str]:
+    if len(password) < 8:
+        return "Password must be at least 8 characters"
+    if password.isdigit():
+        return "Password cannot be only numbers"
+    if not any(ch.isalpha() for ch in password):
+        return "Password must include at least one letter"
+    if not any(ch.isdigit() for ch in password):
+        return "Password must include at least one number"
+    return None
 
 
 def _verify_password(password: str, password_hash: Optional[str]) -> bool:
@@ -280,6 +294,37 @@ def request_email_code(payload: RequestEmailCodeIn, db: Session = Depends(get_db
     )
 
 
+@app.post("/auth/password/forgot/request-code", response_model=RequestEmailCodeOut)
+@app.post("/auth/password/request-code", response_model=RequestEmailCodeOut)
+def request_forgot_password_code(payload: RequestEmailCodeIn, db: Session = Depends(get_db)):
+    email = _normalize_email(payload.email)
+    user = db.query(User).filter(User.email == email).first()
+    if not user:
+        raise HTTPException(404, "User not found")
+
+    code = f"{secrets.randbelow(1000000):06d}"
+    expires_at = _now() + timedelta(minutes=AUTH_CODE_TTL_MINUTES)
+    code_record = EmailVerificationCode(
+        email=email,
+        code_hash=_hash_email_code(email, code),
+        expires_at=expires_at,
+    )
+    db.add(code_record)
+    db.commit()
+
+    delivered, delivery_error = _send_email_code(email, code)
+    if not delivered and not AUTH_DEBUG_CODES:
+        raise HTTPException(500, f"Email delivery failed: {delivery_error or 'unknown'}")
+
+    return RequestEmailCodeOut(
+        status="sent" if delivered else "debug_only",
+        expires_in_seconds=AUTH_CODE_TTL_MINUTES * 60,
+        delivered=delivered,
+        debug_code=code if AUTH_DEBUG_CODES else None,
+        delivery_error=delivery_error if not delivered else None,
+    )
+
+
 @app.post("/auth/email/verify-code", response_model=VerifyEmailCodeOut)
 def verify_email_code(payload: VerifyEmailCodeIn, db: Session = Depends(get_db)):
     email = _normalize_email(payload.email)
@@ -309,14 +354,62 @@ def verify_email_code(payload: VerifyEmailCodeIn, db: Session = Depends(get_db))
     return VerifyEmailCodeOut(verified=True, next_step=next_step, verify_token=verify_token)
 
 
+@app.post("/auth/password/forgot/verify-code", response_model=VerifyEmailCodeOut)
+@app.post("/auth/password/verify-code", response_model=VerifyEmailCodeOut)
+def verify_forgot_password_code(payload: VerifyEmailCodeIn, db: Session = Depends(get_db)):
+    email = _normalize_email(payload.email)
+    user = db.query(User).filter(User.email == email).first()
+    if not user:
+        raise HTTPException(404, "User not found")
+
+    code_record = (
+        db.query(EmailVerificationCode)
+        .filter(
+            EmailVerificationCode.email == email,
+            EmailVerificationCode.consumed_at.is_(None),
+        )
+        .order_by(EmailVerificationCode.created_at.desc())
+        .first()
+    )
+    if not code_record:
+        raise HTTPException(400, "Verification code not found")
+    if code_record.expires_at < _now():
+        raise HTTPException(400, "Verification code expired")
+    if not hmac.compare_digest(code_record.code_hash, _hash_email_code(email, payload.code)):
+        raise HTTPException(400, "Verification code is invalid")
+
+    code_record.consumed_at = _now()
+    db.commit()
+
+    verify_token = _make_signed_token("email_verified", email, AUTH_VERIFY_TOKEN_TTL_MINUTES)
+    return VerifyEmailCodeOut(verified=True, next_step="reset_password", verify_token=verify_token)
+
+
 @app.post("/auth/password/set", response_model=AuthSessionOut)
 def set_password(payload: SetPasswordIn, db: Session = Depends(get_db)):
-    if len(payload.password) < 6:
-        raise HTTPException(400, "Password must be at least 6 characters")
+    password_error = _validate_password_rules(payload.password)
+    if password_error:
+        raise HTTPException(400, password_error)
     email = _verify_signed_token(payload.verify_token, "email_verified")
     user = _get_or_create_user_by_email(email, db)
     if user.password_hash:
         raise HTTPException(409, "Password already set. Use /auth/password/verify")
+
+    user.password_hash = _hash_password(payload.password)
+    db.commit()
+    return _auth_out(db, user)
+
+
+@app.post("/auth/password/reset", response_model=AuthSessionOut)
+def reset_password(payload: ResetPasswordIn, db: Session = Depends(get_db)):
+    password_error = _validate_password_rules(payload.password)
+    if password_error:
+        raise HTTPException(400, password_error)
+
+    email = _verify_signed_token(payload.verify_token, "email_verified")
+    user = db.query(User).filter(User.email == email).first()
+    if not user:
+        raise HTTPException(404, "User not found")
 
     user.password_hash = _hash_password(payload.password)
     db.commit()
@@ -383,24 +476,83 @@ def update_profile(
         if value is not None:
             setattr(user, field, value)
     if payload.password:
-        user.password_hash = sha256(payload.password.encode()).hexdigest()
+        password_error = _validate_password_rules(payload.password)
+        if password_error:
+            raise HTTPException(400, password_error)
+        user.password_hash = _hash_password(payload.password)
     db.commit(); db.refresh(user)
     return user
 
 @app.get("/families", response_model=list[FamilyOut])
-def list_families(db: Session = Depends(get_db)):
-    user = current_user(db)
-    return db.query(Family).options(joinedload(Family.members).joinedload(FamilyMember.user)).join(FamilyMember).filter(FamilyMember.user_id == user.id).all()
+def list_families(
+    authorization: Optional[str] = Header(default=None),
+    db: Session = Depends(get_db),
+):
+    user = _get_user_from_bearer(authorization, db)
+    return (
+        db.query(Family)
+        .options(joinedload(Family.members).joinedload(FamilyMember.user))
+        .join(FamilyMember)
+        .filter(FamilyMember.user_id == user.id)
+        .all()
+    )
 
 @app.post("/families", response_model=FamilyOut)
-def create_family(payload: FamilyCreate, db: Session = Depends(get_db)):
-    user = current_user(db)
+def create_family(
+    payload: FamilyCreate,
+    authorization: Optional[str] = Header(default=None),
+    db: Session = Depends(get_db),
+):
+    user = _get_user_from_bearer(authorization, db)
     fam = Family(code=f"F{randint(1000000, 9999999)}", name=payload.name, address=payload.address, creator_id=user.id)
     db.add(fam); db.flush(); db.add(FamilyMember(family_id=fam.id, user_id=user.id, role="Family Creator")); db.commit(); db.refresh(fam)
     return db.query(Family).options(joinedload(Family.members).joinedload(FamilyMember.user)).get(fam.id)
 
+@app.post("/families/join", response_model=FamilyOut)
+def join_family(
+    payload: FamilyJoin,
+    authorization: Optional[str] = Header(default=None),
+    db: Session = Depends(get_db),
+):
+    user = _get_user_from_bearer(authorization, db)
+    code = (payload.code or "").strip()
+    if not code:
+        raise HTTPException(400, "Family code is required")
+    fam = db.query(Family).filter(Family.code == code).first()
+    if not fam:
+        raise HTTPException(404, "Family not found for the given code")
+    existing = db.query(FamilyMember).filter(
+        FamilyMember.family_id == fam.id, FamilyMember.user_id == user.id
+    ).first()
+    if existing:
+        raise HTTPException(409, "You are already a member of this family")
+    db.add(FamilyMember(family_id=fam.id, user_id=user.id, role="Family Member"))
+    db.commit()
+    return db.query(Family).options(joinedload(Family.members).joinedload(FamilyMember.user)).get(fam.id)
+
+@app.post("/families/{family_id}/leave")
+def leave_family(
+    family_id: int,
+    authorization: Optional[str] = Header(default=None),
+    db: Session = Depends(get_db),
+):
+    user = _get_user_from_bearer(authorization, db)
+    member = db.query(FamilyMember).filter(
+        FamilyMember.family_id == family_id, FamilyMember.user_id == user.id
+    ).first()
+    if not member:
+        raise HTTPException(404, "You are not a member of this family")
+    db.delete(member); db.commit()
+    return {"status": "left"}
+
 @app.patch("/families/{family_id}", response_model=FamilyOut)
-def update_family(family_id: int, payload: FamilyUpdate, db: Session = Depends(get_db)):
+def update_family(
+    family_id: int,
+    payload: FamilyUpdate,
+    authorization: Optional[str] = Header(default=None),
+    db: Session = Depends(get_db),
+):
+    _get_user_from_bearer(authorization, db)
     fam = db.get(Family, family_id)
     if not fam: raise HTTPException(404, "Family not found")
     if payload.name is not None: fam.name = payload.name
@@ -409,7 +561,12 @@ def update_family(family_id: int, payload: FamilyUpdate, db: Session = Depends(g
     return db.query(Family).options(joinedload(Family.members).joinedload(FamilyMember.user)).get(family_id)
 
 @app.delete("/families/{family_id}")
-def dissolve_family(family_id: int, db: Session = Depends(get_db)):
+def dissolve_family(
+    family_id: int,
+    authorization: Optional[str] = Header(default=None),
+    db: Session = Depends(get_db),
+):
+    _get_user_from_bearer(authorization, db)
     fam = db.get(Family, family_id)
     if not fam: raise HTTPException(404, "Family not found")
     db.delete(fam); db.commit()

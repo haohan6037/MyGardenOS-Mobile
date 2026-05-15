@@ -40,6 +40,9 @@ class FamilyUpdate(BaseModel):
     name: Optional[str] = None
     address: Optional[str] = None
 
+class FamilyJoin(BaseModel):
+    code: str
+
 class DeviceOut(BaseModel):
     id: int
     serial: str
@@ -116,6 +119,11 @@ class VerifyEmailCodeOut(BaseModel):
 
 
 class SetPasswordIn(BaseModel):
+    verify_token: str
+    password: str
+
+
+class ResetPasswordIn(BaseModel):
     verify_token: str
     password: str
 

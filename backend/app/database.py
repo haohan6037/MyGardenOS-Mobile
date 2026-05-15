@@ -9,8 +9,8 @@ from sqlalchemy.orm import DeclarativeBase, sessionmaker
 def _build_database_url() -> str:
     explicit_url = os.getenv("DATABASE_URL")
     if explicit_url:
-        # If the URL references a sslrootcert file that doesn't exist on this
-        # host (e.g. Vercel serverless), strip that param so psycopg doesn't fail.
+        # If the URL references an sslrootcert file that does not exist on this
+        # host, strip that param so psycopg can still connect.
         if "sslrootcert=" in explicit_url:
             parsed = urlparse(explicit_url)
             params = parse_qs(parsed.query, keep_blank_values=True)
