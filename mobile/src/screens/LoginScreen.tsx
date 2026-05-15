@@ -5,7 +5,15 @@ import { colors } from '../theme/colors';
 import { auth } from '../services/auth';
 import { useAuth } from '../contexts/AuthContext';
 
-type LoginStep = 'entry' | 'login' | 'email' | 'code' | 'password';
+type LoginStep =
+  | 'entry'
+  | 'login'
+  | 'register_email'
+  | 'register_code'
+  | 'register_password'
+  | 'forgot_email'
+  | 'forgot_code'
+  | 'forgot_password';
 
 export function LoginScreen() {
   const { login } = useAuth();
@@ -14,52 +22,98 @@ export function LoginScreen() {
   const [code, setCode] = useState('');
   const [password, setPassword] = useState('');
   const [verifyToken, setVerifyToken] = useState('');
-  const [nextStep, setNextStep] = useState<'set_password' | 'verify_password' | null>(null);
   const [loading, setLoading] = useState(false);
   const [debugCode, setDebugCode] = useState('');
   const [timer, setTimer] = useState(0);
 
+  const validatePassword = (value: string): string | null => {
+    if (value.length < 8) return 'Password must be at least 8 characters';
+    if (/^\d+$/.test(value)) return 'Password cannot be only numbers';
+    if (!/[A-Za-z]/.test(value)) return 'Password must include at least one letter';
+    if (!/\d/.test(value)) return 'Password must include at least one number';
+    return null;
+  };
+
+  // Email inputs (especially from iOS keyboard autocomplete/paste) can include invisible
+  // unicode whitespace (e.g. NBSP, SIX-PER-EM SPACE, ZWSP) which the backend rejects.
+  // Strip all unicode whitespace and zero-width characters before validating/sending.
+  const sanitizeEmail = (value: string): string =>
+    value.replace(/[\s\u00A0\u1680\u2000-\u200B\u202F\u205F\u3000\uFEFF]/g, '').toLowerCase();
+
+  const isLikelyEmail = (value: string): boolean => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+
   const loginWithPassword = async () => {
-    if (!email.includes('@')) {
+    const cleanEmail = sanitizeEmail(email);
+    if (cleanEmail !== email) setEmail(cleanEmail);
+    if (!isLikelyEmail(cleanEmail)) {
       Alert.alert('Error', 'Please enter a valid email');
       return;
     }
-    if (password.length < 6) {
-      Alert.alert('Error', 'Password must be at least 6 characters');
+    const passwordError = validatePassword(password);
+    if (passwordError) {
+      Alert.alert('Error', passwordError);
       return;
     }
     setLoading(true);
     try {
-      const result = await auth.loginWithPassword(email, password);
+      const result = await auth.loginWithPassword(cleanEmail, password);
       await login(result.access_token, result.user);
     } catch (err: any) {
-      Alert.alert('Error', err.message || 'Login failed');
+      const raw = String(err?.message || '');
+      const isNotFound = raw.startsWith('404') || /user not found/i.test(raw);
+      const isNoPassword = raw.startsWith('409') || /password not set/i.test(raw);
+      const isBadEmail = raw.startsWith('422') || /not a valid email/i.test(raw);
+      if (isNotFound) {
+        Alert.alert(
+          'Account not found',
+          `No account is registered for ${cleanEmail}. Would you like to sign up for a new account with this email?`,
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Sign Up', onPress: () => { setPassword(''); setCode(''); setStep('register_email'); } },
+          ]
+        );
+      } else if (isNoPassword) {
+        Alert.alert(
+          'Password not set',
+          `This email has not finished registration. Please complete sign up to set a password.`,
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Sign Up', onPress: () => { setPassword(''); setCode(''); setStep('register_email'); } },
+          ]
+        );
+      } else if (isBadEmail) {
+        Alert.alert('Invalid email', 'The email address looks invalid. Please retype it.');
+      } else {
+        // Strip HTTP status / JSON envelope for nicer display
+        const friendly = raw
+          .replace(/^\d{3}\s*/, '')
+          .replace(/^\{.*?"detail"\s*:\s*"?/, '')
+          .replace(/"?\}?$/, '')
+          .trim();
+        Alert.alert('Login failed', friendly || 'Login failed');
+      }
     } finally {
       setLoading(false);
     }
   };
 
-  const requestCode = async () => {
-    if (!email.includes('@')) {
+  const requestRegisterCode = async () => {
+    const cleanEmail = sanitizeEmail(email);
+    if (cleanEmail !== email) setEmail(cleanEmail);
+    if (!isLikelyEmail(cleanEmail)) {
       Alert.alert('Error', 'Please enter a valid email');
       return;
     }
     setLoading(true);
     try {
-      const result = await auth.requestCode(email);
-      setStep('code');
+      const result = await auth.requestCode(cleanEmail);
+      setStep('register_code');
       setDebugCode(result.debug_code || '');
       setTimer(Math.ceil(result.expires_in_seconds));
       if (result.delivered) {
-        Alert.alert(
-          'Code Sent',
-          `Verification code sent to ${email}. If you do not receive it, use the debug code shown below.`,
-        );
+        Alert.alert('Code Sent', `Verification code sent to ${cleanEmail}`);
       } else {
-        Alert.alert(
-          'Email not delivered',
-          `Switching to debug code login. Reason: ${result.delivery_error || 'unknown'}`,
-        );
+        Alert.alert('Email not delivered', `Using debug code. Reason: ${result.delivery_error || 'unknown'}`);
       }
     } catch (err: any) {
       Alert.alert('Error', err.message || 'Failed to send code');
@@ -68,7 +122,7 @@ export function LoginScreen() {
     }
   };
 
-  const verifyCode = async () => {
+  const verifyRegisterCode = async () => {
     if (code.length !== 6) {
       Alert.alert('Error', 'Code must be 6 digits');
       return;
@@ -76,9 +130,15 @@ export function LoginScreen() {
     setLoading(true);
     try {
       const result = await auth.verifyCode(email, code);
+      if (result.next_step === 'verify_password') {
+        Alert.alert('Account Exists', 'This email is already signed up. Please use Log In.');
+        setStep('login');
+        setCode('');
+        setDebugCode('');
+        return;
+      }
       setVerifyToken(result.verify_token);
-      setNextStep(result.next_step as 'set_password' | 'verify_password');
-      setStep('password');
+      setStep('register_password');
       setCode('');
     } catch (err: any) {
       Alert.alert('Error', err.message || 'Invalid code');
@@ -87,20 +147,78 @@ export function LoginScreen() {
     }
   };
 
-  const handlePassword = async () => {
-    if (password.length < 6) {
-      Alert.alert('Error', 'Password must be at least 6 characters');
+  const submitRegisterPassword = async () => {
+    const passwordError = validatePassword(password);
+    if (passwordError) {
+      Alert.alert('Error', passwordError);
       return;
     }
     setLoading(true);
     try {
-      const result =
-        nextStep === 'set_password'
-          ? await auth.setPassword(verifyToken, password)
-          : await auth.verifyPassword(verifyToken, password);
+      const result = await auth.setPassword(verifyToken, password);
       await login(result.access_token, result.user);
     } catch (err: any) {
-      Alert.alert('Error', err.message || `Failed to ${nextStep === 'set_password' ? 'set' : 'verify'} password`);
+      Alert.alert('Error', err.message || 'Failed to set password');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const requestForgotCode = async () => {
+    const cleanEmail = sanitizeEmail(email);
+    if (cleanEmail !== email) setEmail(cleanEmail);
+    if (!isLikelyEmail(cleanEmail)) {
+      Alert.alert('Error', 'Please enter a valid email');
+      return;
+    }
+    setLoading(true);
+    try {
+      const result = await auth.requestForgotCode(cleanEmail);
+      setStep('forgot_code');
+      setDebugCode(result.debug_code || '');
+      setTimer(Math.ceil(result.expires_in_seconds));
+      if (result.delivered) {
+        Alert.alert('Code Sent', `Reset code sent to ${cleanEmail}`);
+      } else {
+        Alert.alert('Email not delivered', `Using debug code. Reason: ${result.delivery_error || 'unknown'}`);
+      }
+    } catch (err: any) {
+      Alert.alert('Error', err.message || 'Failed to send reset code');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const verifyForgotCode = async () => {
+    if (code.length !== 6) {
+      Alert.alert('Error', 'Code must be 6 digits');
+      return;
+    }
+    setLoading(true);
+    try {
+      const result = await auth.verifyForgotCode(email, code);
+      setVerifyToken(result.verify_token);
+      setStep('forgot_password');
+      setCode('');
+    } catch (err: any) {
+      Alert.alert('Error', err.message || 'Invalid code');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const submitForgotPassword = async () => {
+    const passwordError = validatePassword(password);
+    if (passwordError) {
+      Alert.alert('Error', passwordError);
+      return;
+    }
+    setLoading(true);
+    try {
+      const result = await auth.resetPassword(verifyToken, password);
+      await login(result.access_token, result.user);
+    } catch (err: any) {
+      Alert.alert('Error', err.message || 'Failed to reset password');
     } finally {
       setLoading(false);
     }
@@ -109,6 +227,16 @@ export function LoginScreen() {
   return (
     <View style={s.root}>
       <StatusBar style="dark" />
+      {step !== 'entry' && (
+        <Pressable
+          style={s.backHeader}
+          onPress={() => { setStep('entry'); setPassword(''); setCode(''); setDebugCode(''); }}
+          hitSlop={12}
+        >
+          <Text style={s.backHeaderIcon}>‹</Text>
+          <Text style={s.backHeaderText}>Home</Text>
+        </Pressable>
+      )}
       {step === 'entry' && (
         <View style={s.container}>
           <View style={s.brandRow}>
@@ -119,8 +247,8 @@ export function LoginScreen() {
           <Pressable style={s.button} onPress={() => setStep('login')}>
             <Text style={s.buttonText}>Log In</Text>
           </Pressable>
-          <Pressable style={s.secondaryButton} onPress={() => setStep('email')}>
-            <Text style={s.secondaryButtonText}>Register</Text>
+          <Pressable style={s.secondaryButton} onPress={() => setStep('register_email')}>
+            <Text style={s.secondaryButtonText}>Sign Up</Text>
           </Pressable>
         </View>
       )}
@@ -133,9 +261,11 @@ export function LoginScreen() {
             style={s.input}
             placeholder="Enter your email"
             value={email}
-            onChangeText={setEmail}
+            onChangeText={(v) => setEmail(sanitizeEmail(v))}
             editable={!loading}
             keyboardType="email-address"
+            autoCapitalize="none"
+            autoCorrect={false}
           />
           <TextInput
             style={s.input}
@@ -148,25 +278,30 @@ export function LoginScreen() {
           <Pressable style={[s.button, loading && s.buttonDisabled]} onPress={loginWithPassword} disabled={loading}>
             <Text style={s.buttonText}>{loading ? 'Logging in...' : 'Continue'}</Text>
           </Pressable>
+          <Pressable onPress={() => { setStep('forgot_email'); setPassword(''); setCode(''); }}>
+            <Text style={s.link}>Forgot Password?</Text>
+          </Pressable>
           <Pressable onPress={() => { setStep('entry'); setPassword(''); }}>
             <Text style={s.link}>Back</Text>
           </Pressable>
         </View>
       )}
 
-      {step === 'email' && (
+      {step === 'register_email' && (
         <View style={s.container}>
-          <Text style={s.title}>Register</Text>
+          <Text style={s.title}>Sign Up</Text>
           <Text style={s.subtitle}>Create account with your email</Text>
           <TextInput
             style={s.input}
             placeholder="Enter your email"
             value={email}
-            onChangeText={setEmail}
+            onChangeText={(v) => setEmail(sanitizeEmail(v))}
             editable={!loading}
             keyboardType="email-address"
+            autoCapitalize="none"
+            autoCorrect={false}
           />
-          <Pressable style={[s.button, loading && s.buttonDisabled]} onPress={requestCode} disabled={loading}>
+          <Pressable style={[s.button, loading && s.buttonDisabled]} onPress={requestRegisterCode} disabled={loading}>
             <Text style={s.buttonText}>{loading ? 'Sending...' : 'Send Verification Code'}</Text>
           </Pressable>
           <Pressable onPress={() => setStep('entry')}>
@@ -175,7 +310,7 @@ export function LoginScreen() {
         </View>
       )}
 
-      {step === 'code' && (
+      {step === 'register_code' && (
         <View style={s.container}>
           <Text style={s.title}>Verification Code</Text>
           <Text style={s.subtitle}>Enter the 6-digit code sent to {email}</Text>
@@ -189,34 +324,100 @@ export function LoginScreen() {
             keyboardType="number-pad"
             maxLength={6}
           />
-          <Pressable style={[s.button, loading && s.buttonDisabled]} onPress={verifyCode} disabled={loading}>
+          <Pressable style={[s.button, loading && s.buttonDisabled]} onPress={verifyRegisterCode} disabled={loading}>
             <Text style={s.buttonText}>{loading ? 'Verifying...' : 'Verify'}</Text>
           </Pressable>
-          <Pressable onPress={() => { setStep('email'); setCode(''); setDebugCode(''); }}>
+          <Pressable onPress={() => { setStep('register_email'); setCode(''); setDebugCode(''); }}>
             <Text style={s.link}>Back to email</Text>
           </Pressable>
           {timer > 0 && <Text style={s.timer}>Code expires in {timer}s</Text>}
         </View>
       )}
 
-      {step === 'password' && (
+      {step === 'register_password' && (
         <View style={s.container}>
-          <Text style={s.title}>{nextStep === 'set_password' ? 'Set Password' : 'Enter Password'}</Text>
-          <Text style={s.subtitle}>
-            {nextStep === 'set_password' ? 'Create a secure password' : 'Verify your password to login'}
-          </Text>
+          <Text style={s.title}>Set Password</Text>
+          <Text style={s.subtitle}>Use 8+ chars with letters and numbers</Text>
           <TextInput
             style={s.input}
-            placeholder="Password (min 6 characters)"
+            placeholder="Password"
             value={password}
             onChangeText={setPassword}
             editable={!loading}
             secureTextEntry
           />
-          <Pressable style={[s.button, loading && s.buttonDisabled]} onPress={handlePassword} disabled={loading}>
+          <Pressable style={[s.button, loading && s.buttonDisabled]} onPress={submitRegisterPassword} disabled={loading}>
             <Text style={s.buttonText}>{loading ? 'Processing...' : 'Continue'}</Text>
           </Pressable>
-          <Pressable onPress={() => { setStep('code'); setPassword(''); }}>
+          <Pressable onPress={() => { setStep('register_code'); setPassword(''); }}>
+            <Text style={s.link}>Back to verification</Text>
+          </Pressable>
+        </View>
+      )}
+
+      {step === 'forgot_email' && (
+        <View style={s.container}>
+          <Text style={s.title}>Forgot Password</Text>
+          <Text style={s.subtitle}>Enter your account email</Text>
+          <TextInput
+            style={s.input}
+            placeholder="Enter your email"
+            value={email}
+            onChangeText={(v) => setEmail(sanitizeEmail(v))}
+            editable={!loading}
+            keyboardType="email-address"
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+          <Pressable style={[s.button, loading && s.buttonDisabled]} onPress={requestForgotCode} disabled={loading}>
+            <Text style={s.buttonText}>{loading ? 'Sending...' : 'Send Reset Code'}</Text>
+          </Pressable>
+          <Pressable onPress={() => setStep('login')}>
+            <Text style={s.link}>Back</Text>
+          </Pressable>
+        </View>
+      )}
+
+      {step === 'forgot_code' && (
+        <View style={s.container}>
+          <Text style={s.title}>Reset Code</Text>
+          <Text style={s.subtitle}>Enter the 6-digit code sent to {email}</Text>
+          {debugCode && <Text style={s.debug}>Debug code: {debugCode}</Text>}
+          <TextInput
+            style={s.input}
+            placeholder="000000"
+            value={code}
+            onChangeText={setCode}
+            editable={!loading}
+            keyboardType="number-pad"
+            maxLength={6}
+          />
+          <Pressable style={[s.button, loading && s.buttonDisabled]} onPress={verifyForgotCode} disabled={loading}>
+            <Text style={s.buttonText}>{loading ? 'Verifying...' : 'Verify'}</Text>
+          </Pressable>
+          <Pressable onPress={() => { setStep('forgot_email'); setCode(''); setDebugCode(''); }}>
+            <Text style={s.link}>Back to email</Text>
+          </Pressable>
+          {timer > 0 && <Text style={s.timer}>Code expires in {timer}s</Text>}
+        </View>
+      )}
+
+      {step === 'forgot_password' && (
+        <View style={s.container}>
+          <Text style={s.title}>New Password</Text>
+          <Text style={s.subtitle}>Use 8+ chars with letters and numbers</Text>
+          <TextInput
+            style={s.input}
+            placeholder="New password"
+            value={password}
+            onChangeText={setPassword}
+            editable={!loading}
+            secureTextEntry
+          />
+          <Pressable style={[s.button, loading && s.buttonDisabled]} onPress={submitForgotPassword} disabled={loading}>
+            <Text style={s.buttonText}>{loading ? 'Resetting...' : 'Reset Password'}</Text>
+          </Pressable>
+          <Pressable onPress={() => { setStep('forgot_code'); setPassword(''); }}>
             <Text style={s.link}>Back to verification</Text>
           </Pressable>
         </View>
@@ -230,6 +431,27 @@ const s = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.bg,
     paddingTop: 80,
+  },
+  backHeader: {
+    position: 'absolute',
+    top: 56,
+    left: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 8,
+    zIndex: 10,
+  },
+  backHeaderIcon: {
+    fontSize: 32,
+    color: colors.green,
+    lineHeight: 32,
+    marginRight: 2,
+  },
+  backHeaderText: {
+    fontSize: 17,
+    color: colors.green,
+    fontWeight: '600',
   },
   container: {
     paddingHorizontal: 24,

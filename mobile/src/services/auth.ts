@@ -1,6 +1,8 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const API = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:8000';
+const API =
+  (globalThis as any)?.process?.env?.EXPO_PUBLIC_API_URL ||
+  'https://mygardenos-mobile-backend-production.up.railway.app';
 const TOKEN_KEY = 'auth_access_token';
 const TOKEN_VERSION_KEY = 'auth_token_version';
 const TOKEN_VERSION = '2';
@@ -24,14 +26,32 @@ export const auth = {
       body: JSON.stringify({ email }),
     }),
 
+  requestForgotCode: (email: string) =>
+    request<{ status: string; expires_in_seconds: number; delivered: boolean; debug_code?: string; delivery_error?: string }>('/auth/password/forgot/request-code', undefined, {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    }),
+
   verifyCode: (email: string, code: string) =>
     request<{ verified: boolean; next_step: string; verify_token: string }>('/auth/email/verify-code', undefined, {
       method: 'POST',
       body: JSON.stringify({ email, code }),
     }),
 
+  verifyForgotCode: (email: string, code: string) =>
+    request<{ verified: boolean; next_step: string; verify_token: string }>('/auth/password/forgot/verify-code', undefined, {
+      method: 'POST',
+      body: JSON.stringify({ email, code }),
+    }),
+
   setPassword: (verify_token: string, password: string) =>
     request<AuthSession>('/auth/password/set', undefined, {
+      method: 'POST',
+      body: JSON.stringify({ verify_token, password }),
+    }),
+
+  resetPassword: (verify_token: string, password: string) =>
+    request<AuthSession>('/auth/password/reset', undefined, {
       method: 'POST',
       body: JSON.stringify({ verify_token, password }),
     }),

@@ -1,12 +1,12 @@
 import React from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Image, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { colors } from '../theme/colors';
 
 export function Screen({ title, children, onBack, onClose, right }: {title?:string; children:React.ReactNode; onBack?:()=>void; onClose?:()=>void; right?:React.ReactNode}) {
   return <View style={s.screen}><View style={s.nav}><Pressable onPress={onBack}><Text style={s.navIcon}>‹</Text></Pressable><Text style={s.title}>{title}</Text><View style={s.navRight}>{right}{onClose && <Pressable onPress={onClose}><Text style={s.close}>×</Text></Pressable>}</View></View><ScrollView contentContainerStyle={s.body}>{children}</ScrollView></View>;
 }
 export function Card({ children }: {children:React.ReactNode}) { return <View style={s.card}>{children}</View>; }
-export function Row({ label, value, onPress, danger }: {label:string; value?:string; onPress?:()=>void; danger?:boolean}) { return <Pressable onPress={onPress} style={s.row}><Text style={[s.rowLabel, danger && {color:colors.darkRed}]}>{label}</Text><View style={s.rowValueWrap}>{value && <Text style={s.rowValue}>{value}</Text>}{onPress && <Text style={s.chev}>›</Text>}</View></Pressable>; }
+export function Row({ label, value, onPress, danger, avatarUri }: {label:string; value?:string; onPress?:()=>void; danger?:boolean; avatarUri?:string}) { return <Pressable onPress={onPress} style={s.row}><Text style={[s.rowLabel, danger && {color:colors.darkRed}]}>{label}</Text><View style={s.rowValueWrap}>{avatarUri ? <Image source={{uri:avatarUri}} style={s.rowAvatar}/> : value ? <Text style={s.rowValue}>{value}</Text> : null}{onPress && <Text style={s.chev}>›</Text>}</View></Pressable>; }
 export function Button({ title, onPress, variant='green' }: {title:string; onPress:()=>void; variant?:'green'|'red'|'light'}) { const bg = variant==='red'?colors.red:variant==='light'?colors.card:colors.green; return <Pressable onPress={onPress} style={[s.button,{backgroundColor:bg}, variant==='light' && s.buttonLight]}><Text style={[s.buttonText, variant==='light' && {color:colors.green}]}>{title}</Text></Pressable>; }
 export function EmptyArt() { return <View style={s.emptyArt}><Text style={s.sparkle}>✦  ◦       ✳</Text><Text style={s.bubble}>?</Text><Text style={s.shadow}>▰</Text></View>; }
 export function InputDialog({ visible, title, placeholder, value, setValue, onCancel, onConfirm }: {visible:boolean; title:string; placeholder:string; value:string; setValue:(v:string)=>void; onCancel:()=>void; onConfirm:()=>void}) { return <Modal transparent visible={visible} animationType="fade"><View style={s.overlay}><View style={s.dialog}><Text style={s.dialogTitle}>{title}</Text><TextInput style={s.input} placeholder={placeholder} value={value} onChangeText={setValue}/><View style={s.dialogActions}><Button title="Cancel" variant="red" onPress={onCancel}/><Button title="Confirm" onPress={onConfirm}/></View></View></View></Modal>; }
@@ -25,6 +25,7 @@ const s = StyleSheet.create({
   rowLabel:{fontSize:17,color:'#3E5044',fontWeight:'500'},
   rowValueWrap:{flexDirection:'row',alignItems:'center'},
   rowValue:{fontSize:16,color:colors.muted,marginRight:10},
+  rowAvatar:{width:40,height:40,borderRadius:20,marginRight:10,backgroundColor:'#E5EFE9'},
   chev:{fontSize:36,color:'#314436'},
   button:{borderRadius:16,minHeight:54,alignItems:'center',justifyContent:'center',paddingHorizontal:18,flex:1,marginHorizontal:6},
   buttonLight:{borderWidth:1,borderColor:colors.line},
