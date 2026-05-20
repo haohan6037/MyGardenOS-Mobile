@@ -54,6 +54,8 @@ class Device(Base):
     status: Mapped[str] = mapped_column(String(40), default="mock_available")
     battery_percent: Mapped[int] = mapped_column(Integer, default=54)
     last_seen_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    schedule_start_time: Mapped[str] = mapped_column(String(5), default="08:00")
+    schedule_end_time: Mapped[str] = mapped_column(String(5), default="18:00")
 
 class Notification(Base):
     __tablename__ = "notifications"

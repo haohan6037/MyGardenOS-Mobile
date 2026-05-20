@@ -52,11 +52,52 @@ class DeviceOut(BaseModel):
     battery_percent: int
     owner_id: Optional[int] = None
     family_id: Optional[int] = None
+    last_seen_at: Optional[datetime] = None
+    schedule_start_time: str = "08:00"
+    schedule_end_time: str = "18:00"
     model_config = {"from_attributes": True}
 
 class BindDeviceIn(BaseModel):
     serial: str
     family_id: Optional[int] = None
+
+class BluetoothDeviceOut(BaseModel):
+    peripheral_id: str
+    serial: str
+    name: str
+    model: str
+    rssi: int
+    is_bound: bool
+    status: str
+
+class PairBluetoothDeviceIn(BaseModel):
+    serial: str
+    peripheral_id: Optional[str] = None
+    name: Optional[str] = None
+    model: Optional[str] = None
+    family_id: Optional[int] = None
+
+class DeviceStatusOut(BaseModel):
+    id: int
+    serial: str
+    name: str
+    model: str
+    status: str
+    battery_percent: int
+    owner_id: Optional[int] = None
+    family_id: Optional[int] = None
+    last_seen_at: Optional[datetime] = None
+    schedule_start_time: str = "08:00"
+    schedule_end_time: str = "18:00"
+    model_config = {"from_attributes": True}
+
+class DeviceStatusUpdate(BaseModel):
+    status: Optional[str] = None
+    battery_percent: Optional[int] = None
+
+class DeviceScheduleUpdate(BaseModel):
+    schedule_start_time: str
+    schedule_end_time: str
 
 class NotificationOut(BaseModel):
     id: int

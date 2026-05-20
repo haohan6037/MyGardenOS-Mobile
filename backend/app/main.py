@@ -12,6 +12,7 @@ except ImportError:
 from random import randint
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session, joinedload
 
 from app.database import Base, SessionLocal, engine, get_db
@@ -31,6 +32,10 @@ from app.schemas.dto import (
     AuthMeOut,
     AuthSessionOut,
     BindDeviceIn,
+    BluetoothDeviceOut,
+    DeviceScheduleUpdate,
+    DeviceStatusOut,
+    DeviceStatusUpdate,
     DeviceOut,
     FamilyCreate,
     FamilyOut,
@@ -38,6 +43,7 @@ from app.schemas.dto import (
     FamilyJoin,
     HelpArticleOut,
     NotificationOut,
+    PairBluetoothDeviceIn,
     ProfileUpdate,
     RequestEmailCodeIn,
     RequestEmailCodeOut,
@@ -236,6 +242,68 @@ def current_user(db: Session) -> User:
         db.add(Setting(user_id=user.id))
     return user
 
+def _require_family_member(db: Session, user: User, family_id: Optional[int]) -> Optional[Family]:
+    if family_id is None:
+        return None
+    family = db.get(Family, family_id)
+    if not family:
+        raise HTTPException(404, "Family not found")
+    membership = db.query(FamilyMember).filter(
+        FamilyMember.family_id == family_id,
+        FamilyMember.user_id == user.id,
+    ).first()
+    if not membership:
+        raise HTTPException(403, "You are not a member of this family")
+    return family
+
+def _device_for_user(db: Session, user: User, device_id: int) -> Device:
+    device = db.get(Device, device_id)
+    if not device or device.owner_id != user.id:
+        raise HTTPException(404, "Device not found")
+    return device
+
+def _can_reassign_device_owner(db: Session, device: Device, user: User) -> bool:
+    if not device.owner_id or device.owner_id == user.id:
+        return True
+    owner = db.get(User, device.owner_id)
+    # Earlier demo builds bound devices without real bearer auth. Let the first
+    # real account reclaim those legacy demo-owned devices by pairing again.
+    return owner is not None and owner.email == "demo@example.com"
+
+def _bluetooth_out(device: Device, index: int = 0) -> BluetoothDeviceOut:
+    return BluetoothDeviceOut(
+        peripheral_id=f"mygardenos-{device.serial}",
+        serial=device.serial,
+        name=device.name,
+        model=device.model,
+        rssi=-48 - (index * 7),
+        is_bound=device.owner_id is not None,
+        status=device.status,
+    )
+
+def _validate_time_hhmm(value: str, field_name: str) -> str:
+    parts = value.split(":")
+    if len(parts) != 2 or not all(part.isdigit() for part in parts):
+        raise HTTPException(400, f"{field_name} must use HH:MM format")
+    hour = int(parts[0])
+    minute = int(parts[1])
+    if hour < 0 or hour > 23 or minute < 0 or minute > 59:
+        raise HTTPException(400, f"{field_name} must be a valid time")
+    return f"{hour:02d}:{minute:02d}"
+
+def _ensure_device_schedule_columns():
+    existing = {column["name"] for column in inspect(engine).get_columns("devices")}
+    statements = []
+    if "schedule_start_time" not in existing:
+        statements.append("ALTER TABLE devices ADD COLUMN schedule_start_time VARCHAR(5) DEFAULT '08:00'")
+    if "schedule_end_time" not in existing:
+        statements.append("ALTER TABLE devices ADD COLUMN schedule_end_time VARCHAR(5) DEFAULT '18:00'")
+    if not statements:
+        return
+    with engine.begin() as conn:
+        for statement in statements:
+            conn.execute(text(statement))
+
 def seed(db: Session):
     user = current_user(db)
     if db.query(Device).count() == 0:
@@ -253,6 +321,7 @@ def seed(db: Session):
 def startup():
     try:
         Base.metadata.create_all(bind=engine)
+        _ensure_device_schedule_columns()
         db = SessionLocal()
         try:
             seed(db)
@@ -573,20 +642,132 @@ def dissolve_family(
     return {"status": "dissolved"}
 
 @app.get("/devices", response_model=list[DeviceOut])
-def devices(db: Session = Depends(get_db)):
-    user = current_user(db)
-    return db.query(Device).filter(Device.owner_id == user.id).all()
+def devices(
+    authorization: Optional[str] = Header(default=None),
+    db: Session = Depends(get_db),
+):
+    user = _get_user_from_bearer(authorization, db)
+    return db.query(Device).filter(Device.owner_id == user.id).order_by(Device.id).all()
 
 @app.get("/devices/search", response_model=list[DeviceOut])
-def search_devices(db: Session = Depends(get_db)):
-    return db.query(Device).filter(Device.owner_id.is_(None)).all()
+def search_devices(
+    authorization: Optional[str] = Header(default=None),
+    db: Session = Depends(get_db),
+):
+    _get_user_from_bearer(authorization, db)
+    return db.query(Device).filter(Device.owner_id.is_(None)).order_by(Device.id).all()
+
+@app.get("/devices/bluetooth/scan", response_model=list[BluetoothDeviceOut])
+def scan_bluetooth_devices(
+    q: Optional[str] = Query(None),
+    include_bound: bool = Query(False),
+    authorization: Optional[str] = Header(default=None),
+    db: Session = Depends(get_db),
+):
+    _get_user_from_bearer(authorization, db)
+    query = db.query(Device)
+    if not include_bound:
+        query = query.filter(Device.owner_id.is_(None))
+    if q:
+        needle = f"%{q.strip()}%"
+        query = query.filter((Device.serial.ilike(needle)) | (Device.name.ilike(needle)))
+    devices_found = query.order_by(Device.id).all()
+    return [_bluetooth_out(device, index) for index, device in enumerate(devices_found)]
 
 @app.post("/devices/bind", response_model=DeviceOut)
-def bind_device(payload: BindDeviceIn, db: Session = Depends(get_db)):
-    user = current_user(db)
-    device = db.query(Device).filter(Device.serial == payload.serial).first()
+def bind_device(
+    payload: BindDeviceIn,
+    authorization: Optional[str] = Header(default=None),
+    db: Session = Depends(get_db),
+):
+    user = _get_user_from_bearer(authorization, db)
+    _require_family_member(db, user, payload.family_id)
+    device = db.query(Device).filter(Device.serial == payload.serial.strip()).first()
     if not device: raise HTTPException(404, "Device not found")
-    device.owner_id = user.id; device.family_id = payload.family_id; device.status = "bound"
+    if not _can_reassign_device_owner(db, device, user):
+        raise HTTPException(409, "Device is already bound to another user")
+    device.owner_id = user.id
+    device.family_id = payload.family_id
+    device.status = "online"
+    device.last_seen_at = _now()
+    db.commit(); db.refresh(device)
+    return device
+
+@app.post("/devices/bluetooth/pair", response_model=DeviceOut)
+def pair_bluetooth_device(
+    payload: PairBluetoothDeviceIn,
+    authorization: Optional[str] = Header(default=None),
+    db: Session = Depends(get_db),
+):
+    user = _get_user_from_bearer(authorization, db)
+    _require_family_member(db, user, payload.family_id)
+    serial = payload.serial.strip()
+    if not serial:
+        raise HTTPException(400, "Device serial is required")
+
+    device = db.query(Device).filter(Device.serial == serial).first()
+    if device and not _can_reassign_device_owner(db, device, user):
+        raise HTTPException(409, "Device is already paired to another user")
+    if not device:
+        device = Device(
+            serial=serial,
+            name=payload.name or "MyGardenOS Mower",
+            model=payload.model or "AN-1600",
+            battery_percent=0,
+        )
+        db.add(device)
+        db.flush()
+
+    if payload.name:
+        device.name = payload.name
+    if payload.model:
+        device.model = payload.model
+    device.owner_id = user.id
+    device.family_id = payload.family_id
+    device.status = "online"
+    device.last_seen_at = _now()
+    db.commit(); db.refresh(device)
+    return device
+
+@app.get("/devices/{device_id}/status", response_model=DeviceStatusOut)
+def get_device_status(
+    device_id: int,
+    authorization: Optional[str] = Header(default=None),
+    db: Session = Depends(get_db),
+):
+    user = _get_user_from_bearer(authorization, db)
+    return _device_for_user(db, user, device_id)
+
+@app.patch("/devices/{device_id}/status", response_model=DeviceStatusOut)
+def update_device_status(
+    device_id: int,
+    payload: DeviceStatusUpdate,
+    authorization: Optional[str] = Header(default=None),
+    db: Session = Depends(get_db),
+):
+    user = _get_user_from_bearer(authorization, db)
+    device = _device_for_user(db, user, device_id)
+    if payload.status is not None:
+        device.status = payload.status
+    if payload.battery_percent is not None:
+        if payload.battery_percent < 0 or payload.battery_percent > 100:
+            raise HTTPException(400, "battery_percent must be between 0 and 100")
+        device.battery_percent = payload.battery_percent
+    device.last_seen_at = _now()
+    db.commit(); db.refresh(device)
+    return device
+
+@app.patch("/devices/{device_id}/schedule", response_model=DeviceOut)
+def update_device_schedule(
+    device_id: int,
+    payload: DeviceScheduleUpdate,
+    authorization: Optional[str] = Header(default=None),
+    db: Session = Depends(get_db),
+):
+    user = _get_user_from_bearer(authorization, db)
+    device = _device_for_user(db, user, device_id)
+    device.schedule_start_time = _validate_time_hhmm(payload.schedule_start_time, "schedule_start_time")
+    device.schedule_end_time = _validate_time_hhmm(payload.schedule_end_time, "schedule_end_time")
     db.commit(); db.refresh(device)
     return device
 

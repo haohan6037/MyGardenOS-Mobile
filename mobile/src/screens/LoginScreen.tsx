@@ -15,7 +15,7 @@ type LoginStep =
   | 'forgot_code'
   | 'forgot_password';
 
-export function LoginScreen() {
+export function LoginScreen({ onBack }: { onBack?: () => void } = {}) {
   const { login } = useAuth();
   const [step, setStep] = useState<LoginStep>('entry');
   const [email, setEmail] = useState('');
@@ -23,7 +23,6 @@ export function LoginScreen() {
   const [password, setPassword] = useState('');
   const [verifyToken, setVerifyToken] = useState('');
   const [loading, setLoading] = useState(false);
-  const [debugCode, setDebugCode] = useState('');
   const [timer, setTimer] = useState(0);
 
   const validatePassword = (value: string): string | null => {
@@ -108,12 +107,11 @@ export function LoginScreen() {
     try {
       const result = await auth.requestCode(cleanEmail);
       setStep('register_code');
-      setDebugCode(result.debug_code || '');
       setTimer(Math.ceil(result.expires_in_seconds));
       if (result.delivered) {
         Alert.alert('Code Sent', `Verification code sent to ${cleanEmail}`);
       } else {
-        Alert.alert('Email not delivered', `Using debug code. Reason: ${result.delivery_error || 'unknown'}`);
+        Alert.alert('Code sent', 'Please check your email for the verification code.');
       }
     } catch (err: any) {
       Alert.alert('Error', err.message || 'Failed to send code');
@@ -134,8 +132,7 @@ export function LoginScreen() {
         Alert.alert('Account Exists', 'This email is already signed up. Please use Log In.');
         setStep('login');
         setCode('');
-        setDebugCode('');
-        return;
+      return;
       }
       setVerifyToken(result.verify_token);
       setStep('register_password');
@@ -175,12 +172,11 @@ export function LoginScreen() {
     try {
       const result = await auth.requestForgotCode(cleanEmail);
       setStep('forgot_code');
-      setDebugCode(result.debug_code || '');
       setTimer(Math.ceil(result.expires_in_seconds));
       if (result.delivered) {
         Alert.alert('Code Sent', `Reset code sent to ${cleanEmail}`);
       } else {
-        Alert.alert('Email not delivered', `Using debug code. Reason: ${result.delivery_error || 'unknown'}`);
+        Alert.alert('Code sent', 'Please check your email for the reset code.');
       }
     } catch (err: any) {
       Alert.alert('Error', err.message || 'Failed to send reset code');
@@ -227,10 +223,16 @@ export function LoginScreen() {
   return (
     <View style={s.root}>
       <StatusBar style="dark" />
-      {step !== 'entry' && (
+      {(step !== 'entry' || onBack) && (
         <Pressable
           style={s.backHeader}
-          onPress={() => { setStep('entry'); setPassword(''); setCode(''); setDebugCode(''); }}
+          onPress={() => {
+            if (step === 'entry' && onBack) {
+              onBack();
+              return;
+            }
+            setStep('entry'); setPassword(''); setCode('');
+          }}
           hitSlop={12}
         >
           <Text style={s.backHeaderIcon}>‹</Text>
@@ -314,7 +316,6 @@ export function LoginScreen() {
         <View style={s.container}>
           <Text style={s.title}>Verification Code</Text>
           <Text style={s.subtitle}>Enter the 6-digit code sent to {email}</Text>
-          {debugCode && <Text style={s.debug}>Debug code: {debugCode}</Text>}
           <TextInput
             style={s.input}
             placeholder="000000"
@@ -327,7 +328,7 @@ export function LoginScreen() {
           <Pressable style={[s.button, loading && s.buttonDisabled]} onPress={verifyRegisterCode} disabled={loading}>
             <Text style={s.buttonText}>{loading ? 'Verifying...' : 'Verify'}</Text>
           </Pressable>
-          <Pressable onPress={() => { setStep('register_email'); setCode(''); setDebugCode(''); }}>
+          <Pressable onPress={() => { setStep('register_email'); setCode(''); }}>
             <Text style={s.link}>Back to email</Text>
           </Pressable>
           {timer > 0 && <Text style={s.timer}>Code expires in {timer}s</Text>}
@@ -382,7 +383,6 @@ export function LoginScreen() {
         <View style={s.container}>
           <Text style={s.title}>Reset Code</Text>
           <Text style={s.subtitle}>Enter the 6-digit code sent to {email}</Text>
-          {debugCode && <Text style={s.debug}>Debug code: {debugCode}</Text>}
           <TextInput
             style={s.input}
             placeholder="000000"
@@ -395,7 +395,7 @@ export function LoginScreen() {
           <Pressable style={[s.button, loading && s.buttonDisabled]} onPress={verifyForgotCode} disabled={loading}>
             <Text style={s.buttonText}>{loading ? 'Verifying...' : 'Verify'}</Text>
           </Pressable>
-          <Pressable onPress={() => { setStep('forgot_email'); setCode(''); setDebugCode(''); }}>
+          <Pressable onPress={() => { setStep('forgot_email'); setCode(''); }}>
             <Text style={s.link}>Back to email</Text>
           </Pressable>
           {timer > 0 && <Text style={s.timer}>Code expires in {timer}s</Text>}
