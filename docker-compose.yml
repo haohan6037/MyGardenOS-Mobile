@@ -1,4 +1,13 @@
 services:
+  mqtt:
+    image: eclipse-mosquitto:2
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./mqtt/config:/mosquitto/config
+      - ./mqtt/data:/mosquitto/data
+      - ./mqtt/log:/mosquitto/log
+
   db:
     image: postgis/postgis:16-3.4
     environment:
@@ -19,10 +28,14 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg://mygardenos:mygardenos@db:5432/mygardenos
       CORS_ORIGINS: "*"
+      MQTT_HOST: mqtt
+      MQTT_PORT: "1883"
     ports:
       - "8000:8000"
     depends_on:
       db:
         condition: service_healthy
+      mqtt:
+        condition: service_started
 volumes:
   postgres_data:

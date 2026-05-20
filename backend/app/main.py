@@ -16,6 +16,7 @@ from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session, joinedload
 
 from app.database import Base, SessionLocal, engine, get_db
+from app.iot.mqtt_monitor import mqtt_settings, publish_test_heartbeat, recent_messages, start_mqtt_monitor
 from app.models.entities import (
     AuthSession,
     Device,
@@ -331,10 +332,39 @@ def startup():
         # Log but do not crash — /health should still respond even if DB is unreachable
         import logging
         logging.getLogger(__name__).error("Startup DB init failed: %s", e)
+    start_mqtt_monitor()
 
 @app.get("/health")
 def health():
     return {"status": "ok", "service": "MyGardenOS API"}
+
+
+@app.get("/iot/mqtt/status")
+def iot_mqtt_status(
+    authorization: Optional[str] = Header(default=None),
+    db: Session = Depends(get_db),
+):
+    _get_user_from_bearer(authorization, db)
+    return mqtt_settings()
+
+
+@app.get("/iot/mqtt/messages")
+def iot_mqtt_messages(
+    authorization: Optional[str] = Header(default=None),
+    db: Session = Depends(get_db),
+):
+    _get_user_from_bearer(authorization, db)
+    return recent_messages()
+
+
+@app.post("/iot/mqtt/test-heartbeat")
+def iot_mqtt_test_heartbeat(
+    robot_id: str = "LOCAL-TEST",
+    authorization: Optional[str] = Header(default=None),
+    db: Session = Depends(get_db),
+):
+    _get_user_from_bearer(authorization, db)
+    return publish_test_heartbeat(robot_id)
 
 
 @app.post("/auth/email/request-code", response_model=RequestEmailCodeOut)
