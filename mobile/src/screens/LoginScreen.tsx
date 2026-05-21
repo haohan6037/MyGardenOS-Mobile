@@ -78,6 +78,8 @@ export function LoginScreen({ onBack }: { onBack?: () => void } = {}) {
     try {
       const result = await auth.loginWithPassword(cleanEmail, password);
       await login(result.access_token, result.user);
+      setErrorMessage('');
+      onBack?.();
     } catch (err: any) {
       const raw = String(err?.message || '');
       const isNotFound = raw.startsWith('404') || /user not found/i.test(raw);
@@ -169,6 +171,8 @@ export function LoginScreen({ onBack }: { onBack?: () => void } = {}) {
     try {
       const result = await auth.setPassword(verifyToken, password);
       await login(result.access_token, result.user);
+      setErrorMessage('');
+      onBack?.();
     } catch (err: any) {
       Alert.alert('Error', err.message || 'Failed to set password');
     } finally {
@@ -228,6 +232,8 @@ export function LoginScreen({ onBack }: { onBack?: () => void } = {}) {
     try {
       const result = await auth.resetPassword(verifyToken, password);
       await login(result.access_token, result.user);
+      setErrorMessage('');
+      onBack?.();
     } catch (err: any) {
       Alert.alert('Error', err.message || 'Failed to reset password');
     } finally {
