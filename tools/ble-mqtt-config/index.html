@@ -217,6 +217,7 @@
           <button id="connect">Connect NBMower</button>
           <button id="read" class="secondary" disabled>Read $AT,0</button>
           <button id="write" disabled>Write MQTT Config</button>
+          <button id="writeEscaped" class="secondary" disabled>Write Escaped Literal</button>
           <button id="disconnect" class="secondary" disabled>Disconnect</button>
         </div>
         <p>Status: <span id="status" class="status">Not connected</span></p>
@@ -301,6 +302,7 @@
     const connectButton = document.querySelector('#connect');
     const readButton = document.querySelector('#read');
     const writeButton = document.querySelector('#write');
+    const writeEscapedButton = document.querySelector('#writeEscaped');
     const disconnectButton = document.querySelector('#disconnect');
     const diagnosticButtons = [
       document.querySelector('#system'),
@@ -336,8 +338,15 @@
       return `{"command":"$AT,1,10,${host.value.trim()},${port.value.trim()},${username.value.trim()},${password.value.trim()}"}\r\n`;
     }
 
+    function currentEscapedLiteralCommand() {
+      return `{\\"command\\":\\"$AT,1,10,${host.value.trim()},${port.value.trim()},${username.value.trim()},${password.value.trim()}\\"}\\r\\n`;
+    }
+
     function updateCommand() {
-      command.textContent = currentCommand().replace(/\r/g, '\\r').replace(/\n/g, '\\n');
+      command.textContent = [
+        `Normal: ${currentCommand().replace(/\r/g, '\\r').replace(/\n/g, '\\n')}`,
+        `Escaped literal test: ${currentEscapedLiteralCommand()}`,
+      ].join('\n');
     }
 
     function appendLog(message) {
@@ -348,6 +357,7 @@
     function setConnected(connected) {
       readButton.disabled = !connected;
       writeButton.disabled = !connected;
+      writeEscapedButton.disabled = !connected;
       disconnectButton.disabled = !connected;
       diagnosticButtons.forEach((button) => button.disabled = !connected);
       connectButton.disabled = connected;
@@ -522,6 +532,14 @@
       }
     }
 
+    async function writeEscapedLiteralConfig() {
+      try {
+        await writeText(currentEscapedLiteralCommand(), 'Escaped literal TX');
+      } catch (error) {
+        appendLog(`ERROR ${error.message || error}`);
+      }
+    }
+
     function disconnect() {
       if (device?.gatt?.connected) device.gatt.disconnect();
       setConnected(false);
@@ -638,6 +656,7 @@
     connectButton.addEventListener('click', connect);
     readButton.addEventListener('click', readAt);
     writeButton.addEventListener('click', writeConfig);
+    writeEscapedButton.addEventListener('click', writeEscapedLiteralConfig);
     disconnectButton.addEventListener('click', disconnect);
     apiLogin.addEventListener('click', loginBackend);
     loadMessages.addEventListener('click', refreshBackendMonitor);
