@@ -23,7 +23,7 @@
       padding: 28px;
     }
     main {
-      width: min(100%, 1440px);
+      width: min(100%, 2200px);
       margin: 0 auto;
     }
     h1 {
@@ -40,8 +40,14 @@
       border: 1px solid var(--line);
       border-radius: 12px;
       padding: 22px;
-      margin-top: 18px;
       box-shadow: 0 8px 24px rgba(15, 106, 69, .08);
+    }
+    .dashboard {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 18px;
+      margin-top: 18px;
+      align-items: start;
     }
     .grid {
       display: grid;
@@ -108,8 +114,8 @@
       font-weight: 700;
     }
     .log {
-      min-height: 180px;
-      max-height: 320px;
+      min-height: 420px;
+      max-height: 720px;
       overflow: auto;
     }
     .diagnostics {
@@ -143,6 +149,8 @@
       display: grid;
       gap: 10px;
       margin-top: 14px;
+      max-height: 720px;
+      overflow: auto;
     }
     .message {
       border: 1px solid var(--line);
@@ -165,10 +173,12 @@
     }
     @media (max-width: 640px) {
       body { padding: 18px; }
+      .dashboard { grid-template-columns: 1fr; }
       .grid { grid-template-columns: 1fr; }
       .summary { grid-template-columns: 1fr; }
     }
     @media (min-width: 641px) and (max-width: 980px) {
+      .dashboard { grid-template-columns: 1fr; }
       .summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     }
   </style>
@@ -180,86 +190,89 @@
       Use Chrome or Edge on a Mac/Windows/Android device with Bluetooth. iPhone Safari/Chrome and iOS Simulator cannot use Web Bluetooth.
     </p>
 
-    <section class="card">
-      <div class="grid">
-        <div>
-          <label>MQTT host</label>
-          <input id="host" value="nozomi.proxy.rlwy.net" />
+    <div class="dashboard">
+      <section class="card">
+        <h2>BLE MQTT Config</h2>
+        <div class="grid">
+          <div>
+            <label>MQTT host</label>
+            <input id="host" value="nozomi.proxy.rlwy.net" />
+          </div>
+          <div>
+            <label>MQTT port</label>
+            <input id="port" value="53239" inputmode="numeric" />
+          </div>
+          <div>
+            <label>Username</label>
+            <input id="username" value="admin" />
+          </div>
+          <div>
+            <label>Password</label>
+            <input id="password" value="admin" />
+          </div>
         </div>
-        <div>
-          <label>MQTT port</label>
-          <input id="port" value="53239" inputmode="numeric" />
+        <p>Generated command:</p>
+        <pre id="command"></pre>
+        <div class="actions">
+          <button id="connect">Connect NBMower</button>
+          <button id="read" class="secondary" disabled>Read $AT,0</button>
+          <button id="write" disabled>Write MQTT Config</button>
+          <button id="disconnect" class="secondary" disabled>Disconnect</button>
         </div>
-        <div>
-          <label>Username</label>
-          <input id="username" value="admin" />
-        </div>
-        <div>
-          <label>Password</label>
-          <input id="password" value="admin" />
-        </div>
-      </div>
-      <p>Generated command:</p>
-      <pre id="command"></pre>
-      <div class="actions">
-        <button id="connect">Connect NBMower</button>
-        <button id="read" class="secondary" disabled>Read $AT,0</button>
-        <button id="write" disabled>Write MQTT Config</button>
-        <button id="disconnect" class="secondary" disabled>Disconnect</button>
-      </div>
-      <p>Status: <span id="status" class="status">Not connected</span></p>
-      <p id="support" class="error"></p>
-    </section>
+        <p>Status: <span id="status" class="status">Not connected</span></p>
+        <p id="support" class="error"></p>
+      </section>
 
-    <section class="card">
-      <h2>Robot Diagnostics</h2>
-      <p>Use these after MQTT config is saved. They help confirm the robot system, status, 4G switch, and working mode.</p>
-      <div class="diagnostics">
-        <button id="system" class="secondary" disabled>Read $SYSTEM</button>
-        <button id="robotStatus" class="secondary" disabled>Read $STATUS</button>
-        <button id="enable4g" class="secondary" disabled>Enable 4G</button>
-        <button id="selfCheck" class="secondary" disabled>Self-check</button>
-        <button id="standby" class="secondary" disabled>Standby</button>
-        <button id="remote" class="secondary" disabled>Remote Mode</button>
-      </div>
-      <div id="summary" class="summary"></div>
-    </section>
+      <section class="card">
+        <h2>Robot Diagnostics</h2>
+        <p>Use these after MQTT config is saved. They help confirm the robot system, status, 4G switch, and working mode.</p>
+        <div class="diagnostics">
+          <button id="system" class="secondary" disabled>Read $SYSTEM</button>
+          <button id="robotStatus" class="secondary" disabled>Read $STATUS</button>
+          <button id="enable4g" class="secondary" disabled>Enable 4G</button>
+          <button id="selfCheck" class="secondary" disabled>Self-check</button>
+          <button id="standby" class="secondary" disabled>Standby</button>
+          <button id="remote" class="secondary" disabled>Remote Mode</button>
+        </div>
+        <div id="summary" class="summary"></div>
+      </section>
 
-    <section class="card">
-      <h2>Backend MQTT Monitor</h2>
-      <p>Log in to the Railway backend, then this page will poll broker logs and robot MQTT messages.</p>
-      <div class="grid">
-        <div>
-          <label>Backend API</label>
-          <input id="apiBase" value="https://mygardenos-mobile-backend-production.up.railway.app" />
+      <section class="card">
+        <h2>Backend MQTT Monitor</h2>
+        <p>Log in to the Railway backend, then this page will poll broker logs and robot MQTT messages.</p>
+        <div class="grid">
+          <div>
+            <label>Backend API</label>
+            <input id="apiBase" value="https://mygardenos-mobile-backend-production.up.railway.app" />
+          </div>
+          <div>
+            <label>Status</label>
+            <input id="monitorStatus" value="Not logged in" readonly />
+          </div>
+          <div>
+            <label>Email</label>
+            <input id="apiEmail" placeholder="you@example.com" />
+          </div>
+          <div>
+            <label>Password</label>
+            <input id="apiPassword" type="password" />
+          </div>
         </div>
-        <div>
-          <label>Status</label>
-          <input id="monitorStatus" value="Not logged in" readonly />
+        <div class="actions">
+          <button id="apiLogin">Log In</button>
+          <button id="loadMessages" class="secondary" disabled>Refresh Messages</button>
+          <button id="toggleAuto" class="secondary" disabled>Start Auto Refresh</button>
         </div>
-        <div>
-          <label>Email</label>
-          <input id="apiEmail" placeholder="you@example.com" />
-        </div>
-        <div>
-          <label>Password</label>
-          <input id="apiPassword" type="password" />
-        </div>
-      </div>
-      <div class="actions">
-        <button id="apiLogin">Log In</button>
-        <button id="loadMessages" class="secondary" disabled>Refresh Messages</button>
-        <button id="toggleAuto" class="secondary" disabled>Start Auto Refresh</button>
-      </div>
-      <div id="backendSummary" class="summary"></div>
-      <div id="messages" class="messages"></div>
-    </section>
+        <div id="backendSummary" class="summary"></div>
+        <div id="messages" class="messages"></div>
+      </section>
 
-    <section class="card">
-      <h2>BLE Channel</h2>
-      <p>Scan name: <b>NBMower</b> · Service: <b>fff0</b> · Read/notify: <b>fff1</b> · Write: <b>fff2</b></p>
-      <pre id="log" class="log"></pre>
-    </section>
+      <section class="card">
+        <h2>BLE Channel</h2>
+        <p>Scan name: <b>NBMower</b> · Service: <b>fff0</b> · Read/notify: <b>fff1</b> · Write: <b>fff2</b></p>
+        <pre id="log" class="log"></pre>
+      </section>
+    </div>
   </main>
 
   <script>
