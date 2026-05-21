@@ -366,8 +366,8 @@
 
     async function writeText(value, label = 'TX') {
       const bytes = new TextEncoder().encode(value);
-      if (writeCharacteristic.writeValueWithResponse) {
-        await writeCharacteristic.writeValueWithResponse(bytes);
+      if (writeCharacteristic.writeValueWithoutResponse) {
+        await writeCharacteristic.writeValueWithoutResponse(bytes);
       } else {
         await writeCharacteristic.writeValue(bytes);
       }
@@ -491,7 +491,7 @@
         support.textContent = '';
         appendLog('Requesting NBMower...');
         device = await navigator.bluetooth.requestDevice({
-          filters: [{ namePrefix: 'NBMower' }],
+          filters: [{ name: 'NBMower' }],
           optionalServices: [SERVICE_UUID],
         });
         device.addEventListener('gattserverdisconnected', () => {
