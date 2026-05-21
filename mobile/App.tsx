@@ -81,12 +81,21 @@ function MainApp({ onLogout, token, initialProfile }: { onLogout: () => Promise<
   const open = (r:Route) => setRoute(r);
   const openProtected = (r:Route) => token ? setRoute(r) : setRoute('login');
   const close = () => { setRoute('home'); setTab('device'); reload(); };
+  const handleLogout = async () => {
+    await onLogout();
+    setProfile(null);
+    setFamilies([]);
+    setDevices([]);
+    setSelectedDevice(undefined);
+    setRoute('home');
+    setTab('profile');
+  };
   const openDevice = (device: Device) => { setSelectedDevice(device); setRoute('deviceDetail'); };
 
   if (route === 'login') return <LoginScreen onBack={close} />;
   if (route === 'addDevice') return token ? <AddDevice onBack={close} onBound={async(d)=>{setSelectedDevice(d); setDevices((existing)=>[d, ...existing.filter((item)=>item.id !== d.id && item.serial !== d.serial)]); await reload(); close();}} /> : <LoginScreen onBack={close} />;
   if (route === 'deviceDetail') return <DeviceDetail device={selectedDevice || devices[0]} onBack={close} onUpdated={async(d)=>{setSelectedDevice(d); await reload();}} />;
-  if (route === 'account') return <Account profile={profile} setProfile={setProfile} onBack={()=>open('profile')} onLogout={onLogout} />;
+  if (route === 'account') return <Account profile={profile} setProfile={setProfile} onBack={()=>open('profile')} onLogout={handleLogout} />;
   if (route === 'families') return <Families profile={profile} families={families} setFamilies={setFamilies} openFamily={(f)=>{setFamily(f); open('familyDetail')}} onBack={()=>open('profile')} />;
   if (route === 'familyDetail' && family) return <FamilyDetail family={family} onBack={()=>open('families')} onChange={async(f)=>{setFamily(f); setFamilies(await api.families())}} onDissolve={async()=>{await api.dissolveFamily(family.id); setFamilies(await api.families()); open('families')}} />;
   if (route === 'notifications') return <Notifications onBack={close} settings={()=>open('notificationSettings')} />;
