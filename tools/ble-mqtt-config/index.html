@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MyGardenOS BLE MQTT Config</title>
+  <style>
+    :root {
+      --bg: #f5faf6;
+      --card: #ffffff;
+      --text: #153526;
+      --muted: #718276;
+      --green: #0f6a45;
+      --line: #d3e4d8;
+      --danger: #b42318;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      padding: 28px;
+    }
+    main {
+      max-width: 780px;
+      margin: 0 auto;
+    }
+    h1 {
+      font-size: 34px;
+      margin: 0 0 8px;
+    }
+    p {
+      color: var(--muted);
+      font-size: 16px;
+      line-height: 1.55;
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 22px;
+      margin-top: 18px;
+      box-shadow: 0 8px 24px rgba(15, 106, 69, .08);
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+    }
+    label {
+      display: block;
+      font-size: 13px;
+      color: var(--muted);
+      font-weight: 700;
+      margin-bottom: 6px;
+    }
+    input {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px 13px;
+      color: var(--text);
+      font-size: 16px;
+      background: #fbfefc;
+    }
+    button {
+      border: 0;
+      border-radius: 10px;
+      padding: 13px 16px;
+      background: var(--green);
+      color: #fff;
+      font-size: 16px;
+      font-weight: 800;
+      cursor: pointer;
+    }
+    button.secondary {
+      background: #eaf5ee;
+      color: var(--green);
+      border: 1px solid var(--line);
+    }
+    button:disabled {
+      opacity: .55;
+      cursor: not-allowed;
+    }
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 16px;
+    }
+    pre {
+      white-space: pre-wrap;
+      word-break: break-word;
+      background: #0e2118;
+      color: #dff8e8;
+      border-radius: 10px;
+      padding: 14px;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+    .status {
+      font-weight: 800;
+      color: var(--green);
+    }
+    .error {
+      color: var(--danger);
+      font-weight: 700;
+    }
+    .log {
+      min-height: 180px;
+      max-height: 320px;
+      overflow: auto;
+    }
+    @media (max-width: 640px) {
+      body { padding: 18px; }
+      .grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>BLE MQTT Config</h1>
+    <p>
+      Use Chrome or Edge on a Mac/Windows/Android device with Bluetooth. iPhone Safari/Chrome and iOS Simulator cannot use Web Bluetooth.
+    </p>
+
+    <section class="card">
+      <div class="grid">
+        <div>
+          <label>MQTT host</label>
+          <input id="host" value="nozomi.proxy.rlwy.net" />
+        </div>
+        <div>
+          <label>MQTT port</label>
+          <input id="port" value="53239" inputmode="numeric" />
+        </div>
+        <div>
+          <label>Username</label>
+          <input id="username" value="admin" />
+        </div>
+        <div>
+          <label>Password</label>
+          <input id="password" value="admin" />
+        </div>
+      </div>
+      <p>Generated command:</p>
+      <pre id="command"></pre>
+      <div class="actions">
+        <button id="connect">Connect NBMower</button>
+        <button id="read" class="secondary" disabled>Read $AT,0</button>
+        <button id="write" disabled>Write MQTT Config</button>
+        <button id="disconnect" class="secondary" disabled>Disconnect</button>
+      </div>
+      <p>Status: <span id="status" class="status">Not connected</span></p>
+      <p id="support" class="error"></p>
+    </section>
+
+    <section class="card">
+      <h2>BLE Channel</h2>
+      <p>Scan name: <b>NBMower</b> · Service: <b>fff0</b> · Read/notify: <b>fff1</b> · Write: <b>fff2</b></p>
+      <pre id="log" class="log"></pre>
+    </section>
+  </main>
+
+  <script>
+    const SERVICE_UUID = '0000fff0-0000-1000-8000-00805f9b34fb';
+    const READ_UUID = '0000fff1-0000-1000-8000-00805f9b34fb';
+    const WRITE_UUID = '0000fff2-0000-1000-8000-00805f9b34fb';
+
+    const host = document.querySelector('#host');
+    const port = document.querySelector('#port');
+    const username = document.querySelector('#username');
+    const password = document.querySelector('#password');
+    const command = document.querySelector('#command');
+    const log = document.querySelector('#log');
+    const statusText = document.querySelector('#status');
+    const support = document.querySelector('#support');
+    const connectButton = document.querySelector('#connect');
+    const readButton = document.querySelector('#read');
+    const writeButton = document.querySelector('#write');
+    const disconnectButton = document.querySelector('#disconnect');
+
+    let device;
+    let server;
+    let writeCharacteristic;
+    let readCharacteristic;
+
+    function currentCommand() {
+      return `{"command":"$AT,1,10,${host.value.trim()},${port.value.trim()},${username.value.trim()},${password.value.trim()}"}\r\n`;
+    }
+
+    function updateCommand() {
+      command.textContent = currentCommand().replace(/\r/g, '\\r').replace(/\n/g, '\\n');
+    }
+
+    function appendLog(message) {
+      const time = new Date().toLocaleTimeString();
+      log.textContent = `[${time}] ${message}\n` + log.textContent;
+    }
+
+    function setConnected(connected) {
+      readButton.disabled = !connected;
+      writeButton.disabled = !connected;
+      disconnectButton.disabled = !connected;
+      connectButton.disabled = connected;
+      statusText.textContent = connected ? `Connected to ${device?.name || 'device'}` : 'Not connected';
+    }
+
+    async function writeText(value) {
+      const bytes = new TextEncoder().encode(value);
+      if (writeCharacteristic.writeValueWithResponse) {
+        await writeCharacteristic.writeValueWithResponse(bytes);
+      } else {
+        await writeCharacteristic.writeValue(bytes);
+      }
+      appendLog(`TX ${value.replace(/\r/g, '\\r').replace(/\n/g, '\\n')}`);
+    }
+
+    async function connect() {
+      try {
+        if (!navigator.bluetooth) {
+          support.textContent = 'This browser does not support Web Bluetooth. Use Chrome or Edge on Mac/Windows/Android.';
+          return;
+        }
+        support.textContent = '';
+        appendLog('Requesting NBMower...');
+        device = await navigator.bluetooth.requestDevice({
+          filters: [{ namePrefix: 'NBMower' }],
+          optionalServices: [SERVICE_UUID],
+        });
+        device.addEventListener('gattserverdisconnected', () => {
+          appendLog('Disconnected');
+          setConnected(false);
+        });
+        server = await device.gatt.connect();
+        const service = await server.getPrimaryService(SERVICE_UUID);
+        writeCharacteristic = await service.getCharacteristic(WRITE_UUID);
+        readCharacteristic = await service.getCharacteristic(READ_UUID);
+        await readCharacteristic.startNotifications();
+        readCharacteristic.addEventListener('characteristicvaluechanged', (event) => {
+          const text = new TextDecoder().decode(event.target.value);
+          appendLog(`RX ${text.replace(/\r/g, '\\r').replace(/\n/g, '\\n')}`);
+        });
+        setConnected(true);
+        appendLog('Connected and notifications enabled');
+      } catch (error) {
+        appendLog(`ERROR ${error.message || error}`);
+        setConnected(false);
+      }
+    }
+
+    async function readAt() {
+      try {
+        await writeText('{"command":"$AT,0"}\r\n');
+      } catch (error) {
+        appendLog(`ERROR ${error.message || error}`);
+      }
+    }
+
+    async function writeConfig() {
+      try {
+        await writeText(currentCommand());
+      } catch (error) {
+        appendLog(`ERROR ${error.message || error}`);
+      }
+    }
+
+    function disconnect() {
+      if (device?.gatt?.connected) device.gatt.disconnect();
+      setConnected(false);
+    }
+
+    [host, port, username, password].forEach((input) => input.addEventListener('input', updateCommand));
+    connectButton.addEventListener('click', connect);
+    readButton.addEventListener('click', readAt);
+    writeButton.addEventListener('click', writeConfig);
+    disconnectButton.addEventListener('click', disconnect);
+
+    updateCommand();
+    if (!navigator.bluetooth) {
+      support.textContent = 'Web Bluetooth is unavailable in this browser. iPhone/iPad browsers do not support it.';
+    }
+  </script>
+</body>
+</html>
