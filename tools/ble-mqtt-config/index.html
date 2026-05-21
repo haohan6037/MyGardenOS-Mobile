@@ -139,6 +139,30 @@
       font-size: 12px;
       margin-bottom: 4px;
     }
+    .messages {
+      display: grid;
+      gap: 10px;
+      margin-top: 14px;
+    }
+    .message {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 12px;
+      background: #fbfefc;
+    }
+    .message-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      color: var(--green);
+      font-weight: 800;
+      margin-bottom: 8px;
+    }
+    .message-time {
+      color: var(--muted);
+      font-weight: 500;
+      white-space: nowrap;
+    }
     @media (max-width: 640px) {
       body { padding: 18px; }
       .grid { grid-template-columns: 1fr; }
@@ -198,6 +222,36 @@
     </section>
 
     <section class="card">
+      <h2>Backend MQTT Monitor</h2>
+      <p>Log in to the Railway backend, then this page will poll broker logs and robot MQTT messages.</p>
+      <div class="grid">
+        <div>
+          <label>Backend API</label>
+          <input id="apiBase" value="https://mygardenos-mobile-backend-production.up.railway.app" />
+        </div>
+        <div>
+          <label>Status</label>
+          <input id="monitorStatus" value="Not logged in" readonly />
+        </div>
+        <div>
+          <label>Email</label>
+          <input id="apiEmail" placeholder="you@example.com" />
+        </div>
+        <div>
+          <label>Password</label>
+          <input id="apiPassword" type="password" />
+        </div>
+      </div>
+      <div class="actions">
+        <button id="apiLogin">Log In</button>
+        <button id="loadMessages" class="secondary" disabled>Refresh Messages</button>
+        <button id="toggleAuto" class="secondary" disabled>Start Auto Refresh</button>
+      </div>
+      <div id="backendSummary" class="summary"></div>
+      <div id="messages" class="messages"></div>
+    </section>
+
+    <section class="card">
       <h2>BLE Channel</h2>
       <p>Scan name: <b>NBMower</b> · Service: <b>fff0</b> · Read/notify: <b>fff1</b> · Write: <b>fff2</b></p>
       <pre id="log" class="log"></pre>
@@ -230,6 +284,17 @@
       document.querySelector('#remote'),
     ];
     const summary = document.querySelector('#summary');
+    const apiBase = document.querySelector('#apiBase');
+    const apiEmail = document.querySelector('#apiEmail');
+    const apiPassword = document.querySelector('#apiPassword');
+    const apiLogin = document.querySelector('#apiLogin');
+    const loadMessages = document.querySelector('#loadMessages');
+    const toggleAuto = document.querySelector('#toggleAuto');
+    const monitorStatus = document.querySelector('#monitorStatus');
+    const backendSummary = document.querySelector('#backendSummary');
+    const messages = document.querySelector('#messages');
+    let apiToken = localStorage.getItem('mygardenos_api_token') || '';
+    let refreshTimer;
 
     let device;
     let server;
@@ -388,11 +453,101 @@
       setConnected(false);
     }
 
+    async function apiRequest(path, options = {}) {
+      const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) };
+      if (apiToken) headers.Authorization = `Bearer ${apiToken}`;
+      const response = await fetch(`${apiBase.value.replace(/\/$/, '')}${path}`, { ...options, headers });
+      const text = await response.text();
+      let body;
+      try { body = text ? JSON.parse(text) : null; } catch { body = text; }
+      if (!response.ok) {
+        const detail = body?.detail || text || response.statusText;
+        throw new Error(`${response.status} ${detail}`);
+      }
+      return body;
+    }
+
+    async function loginBackend() {
+      try {
+        monitorStatus.value = 'Logging in...';
+        const result = await apiRequest('/auth/login', {
+          method: 'POST',
+          body: JSON.stringify({ email: apiEmail.value.trim(), password: apiPassword.value }),
+          headers: {},
+        });
+        apiToken = result.access_token;
+        localStorage.setItem('mygardenos_api_token', apiToken);
+        monitorStatus.value = `Logged in as ${result.user.email}`;
+        loadMessages.disabled = false;
+        toggleAuto.disabled = false;
+        await refreshBackendMonitor();
+      } catch (error) {
+        monitorStatus.value = error.message || String(error);
+      }
+    }
+
+    async function refreshBackendMonitor() {
+      try {
+        const [status, list] = await Promise.all([
+          apiRequest('/iot/mqtt/status'),
+          apiRequest('/iot/mqtt/messages'),
+        ]);
+        backendSummary.innerHTML = [
+          ['Enabled', String(status.enabled)],
+          ['Broker', `${status.host}:${status.port}`],
+          ['Topics', status.topics.join(', ')],
+          ['Messages', String(list.length)],
+        ].map(([label, value]) => `<div><b>${label}</b>${value}</div>`).join('');
+        renderMessages(list);
+        monitorStatus.value = `Updated ${new Date().toLocaleTimeString()}`;
+      } catch (error) {
+        monitorStatus.value = error.message || String(error);
+      }
+    }
+
+    function renderMessages(list) {
+      if (!list.length) {
+        messages.innerHTML = '<p>No MQTT messages or broker logs received yet.</p>';
+        return;
+      }
+      messages.innerHTML = list.map((item) => {
+        const payload = item.json ? JSON.stringify(item.json, null, 2) : item.payload;
+        return `<div class="message">
+          <div class="message-head"><span>${escapeHtml(item.topic)}</span><span class="message-time">${escapeHtml(item.received_at || '')}</span></div>
+          <pre>${escapeHtml(payload)}</pre>
+        </div>`;
+      }).join('');
+    }
+
+    function escapeHtml(value) {
+      return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
+    function toggleAutoRefresh() {
+      if (refreshTimer) {
+        clearInterval(refreshTimer);
+        refreshTimer = undefined;
+        toggleAuto.textContent = 'Start Auto Refresh';
+        return;
+      }
+      refreshBackendMonitor();
+      refreshTimer = setInterval(refreshBackendMonitor, 3000);
+      toggleAuto.textContent = 'Stop Auto Refresh';
+    }
+
     [host, port, username, password].forEach((input) => input.addEventListener('input', updateCommand));
     connectButton.addEventListener('click', connect);
     readButton.addEventListener('click', readAt);
     writeButton.addEventListener('click', writeConfig);
     disconnectButton.addEventListener('click', disconnect);
+    apiLogin.addEventListener('click', loginBackend);
+    loadMessages.addEventListener('click', refreshBackendMonitor);
+    toggleAuto.addEventListener('click', toggleAutoRefresh);
     document.querySelector('#system').addEventListener('click', () => sendCommand('$SYSTEM', 'Read SYSTEM').catch((error) => appendLog(`ERROR ${error.message || error}`)));
     document.querySelector('#robotStatus').addEventListener('click', () => sendCommand('$STATUS', 'Read STATUS').catch((error) => appendLog(`ERROR ${error.message || error}`)));
     document.querySelector('#enable4g').addEventListener('click', () => sendCommand('$CONFIG,1,304,1', 'Enable 4G').catch((error) => appendLog(`ERROR ${error.message || error}`)));
@@ -403,6 +558,12 @@
     updateCommand();
     if (!navigator.bluetooth) {
       support.textContent = 'Web Bluetooth is unavailable in this browser. iPhone/iPad browsers do not support it.';
+    }
+    if (apiToken) {
+      monitorStatus.value = 'Saved token available';
+      loadMessages.disabled = false;
+      toggleAuto.disabled = false;
+      refreshBackendMonitor();
     }
   </script>
 </body>

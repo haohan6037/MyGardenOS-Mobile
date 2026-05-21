@@ -20,8 +20,6 @@ export type BluetoothDevice = { peripheral_id:string; serial:string; name:string
 export type Settings = { language:string; region:string; device_notifications:boolean; system_notifications:boolean };
 export type Article = { slug:string; title:string; category:string; content:string };
 export type About = { product:string; version:string; update_status:string; privacy_policy:string; user_agreement:string };
-export type IotMqttStatus = { enabled:boolean; host:string; port:number; username:string; topics:string[] };
-export type IotMqttMessage = { topic:string; payload:string; json?: unknown; source:string; received_at:string };
 
 export const api = {
   profile: () => request<User>('/profile'),
@@ -46,7 +44,4 @@ export const api = {
   articles: () => request<Article[]>('/help/articles'),
   article: (slug:string) => request<Article>(`/help/articles/${slug}`),
   about: () => request<About>('/about'),
-  iotMqttStatus: () => request<IotMqttStatus>('/iot/mqtt/status'),
-  iotMqttMessages: () => request<IotMqttMessage[]>('/iot/mqtt/messages'),
-  publishTestHeartbeat: (robot_id: string = 'LOCAL-TEST') => request<{published:boolean; message:IotMqttMessage}>(`/iot/mqtt/test-heartbeat?robot_id=${encodeURIComponent(robot_id)}`, { method:'POST' }),
 };

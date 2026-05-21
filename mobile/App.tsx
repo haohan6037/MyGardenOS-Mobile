@@ -8,16 +8,13 @@ import * as Clipboard from 'expo-clipboard';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { ActionSheet, Button, Card, EmptyArt, InputDialog, Row, Screen } from './src/components/ui';
-import { About, api, Article, BluetoothDevice, Device, Family, IotMqttMessage, IotMqttStatus, Settings, User, setAuthToken } from './src/services/api';
+import { About, api, Article, BluetoothDevice, Device, Family, Settings, User, setAuthToken } from './src/services/api';
 import { colors } from './src/theme/colors';
 import { AuthProvider, useAuth } from './src/contexts/AuthContext';
 import { LoginScreen } from './src/screens/LoginScreen';
 
-type Route = 'home'|'login'|'addDevice'|'deviceDetail'|'profile'|'account'|'families'|'familyDetail'|'notifications'|'notificationSettings'|'iotTest'|'help'|'operationHelp'|'article'|'about'|'general'|'text';
+type Route = 'home'|'login'|'addDevice'|'deviceDetail'|'profile'|'account'|'families'|'familyDetail'|'notifications'|'notificationSettings'|'help'|'operationHelp'|'article'|'about'|'general'|'text';
 type ScheduleTime = { hour: number; minute: number; period: 'AM' | 'PM' };
-const ROBOT_MQTT_HOST = 'nozomi.proxy.rlwy.net';
-const ROBOT_MQTT_PORT = 53239;
-const ROBOT_MQTT_AT_COMMAND = `{"command":"$AT,1,10,${ROBOT_MQTT_HOST},${ROBOT_MQTT_PORT},admin,admin"}\\r\\n`;
 
 export default function App() {
   return (
@@ -100,7 +97,6 @@ function MainApp({ onLogout, token, initialProfile }: { onLogout: () => Promise<
   if (route === 'familyDetail' && family) return <FamilyDetail family={family} onBack={()=>open('families')} onChange={async(f)=>{setFamily(f); setFamilies(await api.families())}} onDissolve={async()=>{await api.dissolveFamily(family.id); setFamilies(await api.families()); open('families')}} />;
   if (route === 'notifications') return <Notifications onBack={close} settings={()=>open('notificationSettings')} />;
   if (route === 'notificationSettings') return <NotificationSettings settings={settings} setSettings={setSettings} onBack={()=>open('notifications')} />;
-  if (route === 'iotTest') return <IotMqttTest onBack={()=>open('profile')} />;
   if (route === 'help') return <Help onBack={()=>open('profile')} operation={()=>open('operationHelp')} />;
   if (route === 'operationHelp') return <OperationHelp onBack={()=>open('help')} openArticle={async(a)=>{setArticle(a); open('article')}} />;
   if (route === 'article' && article) return <ArticleScreen article={article} onBack={()=>open('operationHelp')} />;
@@ -389,7 +385,6 @@ function Profile({isAuthenticated, profile, familyCount, deviceCount, open, open
         <ProfileRow icon="account-box" label="Account Settings" onPress={()=>openProtected('account')} />
         <ProfileRow icon="home" label="Families Setting" onPress={()=>openProtected('families')} />
         <ProfileRow icon="message-text" label="Notification Settings" onPress={()=>openProtected('notifications')} />
-        <ProfileRow icon="access-point-network" label="MQTT Test Monitor" onPress={()=>openProtected('iotTest')} />
         <ProfileRow icon="cog" label="General Settings" onPress={()=>openProtected('general')} />
         <ProfileRow icon="help-circle" label="Help & Feedback" accent="yellow" onPress={()=>open('help')} />
         <ProfileRow icon="file-alert" label="About MyGardenOS" accent="yellow" onPress={()=>open('about')} />
@@ -1051,100 +1046,6 @@ function Families({profile,families,setFamilies,openFamily,onBack}:{profile:User
 function FamilyDetail({family,onBack,onChange,onDissolve}:{family:Family;onBack:()=>void;onChange:(f:Family)=>void;onDissolve:()=>void}) { const [addr,setAddr]=useState(false); const [val,setVal]=useState(family.address); const save=async()=>{const f=await api.updateFamily(family.id,{address:val.trim()}); onChange(f); setAddr(false)}; return <Screen title="Families" onBack={onBack} onClose={onBack}><Card><Row label="Familie Code" value={family.code}/><Row label="Familie Name" value={family.name} onPress={()=>{}}/><Row label="Address" value={family.address} onPress={()=>{setVal(family.address); setAddr(true);}}/></Card><View style={{height:360}}/><Button title="Dissolve Family" variant="red" onPress={onDissolve}/><Modal transparent visible={addr} animationType="fade"><View style={s.overlay}><View style={s.dialog}><Text style={s.dialogTitle}>Modify address</Text><AddressInput value={val} onChange={setVal} placeholder="Please enter your address" enabled={addr}/><View style={s.dialogActions}><Button title="Cancel" variant="red" onPress={()=>setAddr(false)}/><Button title="Confirm" onPress={save}/></View></View></View></Modal></Screen> }
 function Notifications({onBack,settings}:{onBack:()=>void;settings:()=>void}) { const [kind,setKind]=useState<'device'|'system'>('device'); const [read,setRead]=useState(false); return <Screen title="Notification" onBack={onBack} right={<Pressable onPress={settings}><Text style={{fontSize:32}}>⚙</Text></Pressable>}><View style={s.segment}><Pressable onPress={()=>setKind('device')}><Text style={[s.seg,kind==='device'&&s.activeSeg]}>Device notification</Text></Pressable><Pressable onPress={()=>setKind('system')}><Text style={[s.seg,kind==='system'&&s.activeSeg]}>System notification</Text></Pressable></View><View style={s.filters}><Pressable onPress={()=>setRead(false)} style={s.filter}><Text style={{color:colors.red}}>▣ Unread</Text></Pressable><Pressable onPress={()=>setRead(true)} style={s.filter}><Text style={{color:colors.green}}>▣ Read</Text></Pressable></View><EmptyArt/><Text style={s.noNews}>No news at this time.</Text></Screen> }
 function NotificationSettings({settings,setSettings,onBack}:{settings:Settings;setSettings:(s:Settings)=>void;onBack:()=>void}) { const patch=async(b:Partial<Settings>)=>setSettings(await api.updateSettings(b)); return <Screen title="Notification" onBack={onBack} onClose={onBack}><Card><View style={s.switchRow}><View><Text style={s.rowLabel}>Device notification</Text><Text style={s.mutedSmall}>Receive device notification</Text></View><Switch value={settings.device_notifications} onValueChange={v=>patch({device_notifications:v})}/></View><View style={s.switchRow}><View><Text style={s.rowLabel}>System notification</Text><Text style={s.mutedSmall}>Receive system notification</Text></View><Switch value={settings.system_notifications} onValueChange={v=>patch({system_notifications:v})}/></View></Card></Screen> }
-function IotMqttTest({onBack}:{onBack:()=>void}) {
-  const [status, setStatus] = useState<IotMqttStatus | null>(null);
-  const [messages, setMessages] = useState<IotMqttMessage[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-
-  const load = async () => {
-    try {
-      setLoading(true);
-      setError('');
-      const [nextStatus, nextMessages] = await Promise.all([api.iotMqttStatus(), api.iotMqttMessages()]);
-      setStatus(nextStatus);
-      setMessages(nextMessages);
-    } catch (e:any) {
-      setError(e?.message || 'Unable to load MQTT messages.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    load();
-    const timer = setInterval(load, 3000);
-    return () => clearInterval(timer);
-  }, []);
-
-  const copyAtCommand = async () => {
-    await Clipboard.setStringAsync(ROBOT_MQTT_AT_COMMAND);
-    Alert.alert('Copied', 'MQTT Bluetooth command copied.');
-  };
-  const backendMonitorText = status ? `${status.host}:${status.port}` : 'Loading';
-  const backendMatchesRobot = !!status && status.host === ROBOT_MQTT_HOST && status.port === ROBOT_MQTT_PORT;
-
-  return <Screen title="MQTT Setup" onBack={onBack} onClose={onBack} right={<Pressable onPress={load} disabled={loading} hitSlop={10}><Feather name="refresh-cw" size={24} color={colors.green}/></Pressable>}>
-    <Card>
-      <View style={s.iotHeader}>
-        <MaterialCommunityIcons name="access-point-network" size={34} color={colors.green}/>
-        <View style={{flex:1}}>
-          <Text style={s.iotTitle}>Robot MQTT Access</Text>
-          <Text style={s.iotMuted}>{`${ROBOT_MQTT_HOST}:${ROBOT_MQTT_PORT}`}</Text>
-        </View>
-      </View>
-      <View style={{paddingHorizontal:18,paddingTop:14}}>
-        <Text style={s.mutedSmall}>Backend monitor: {backendMonitorText}</Text>
-        {!backendMatchesRobot && status && (
-          <Text style={s.iotError}>Backend MQTT is not pointing at the robot broker yet. Set MQTT_HOST={ROBOT_MQTT_HOST} and MQTT_PORT={ROBOT_MQTT_PORT}, then redeploy backend.</Text>
-        )}
-      </View>
-      <View style={s.iotConfigGrid}>
-        <IotConfig label="Scan" value="NBMower"/>
-        <IotConfig label="Service" value="fff0"/>
-        <IotConfig label="Read" value="fff1"/>
-        <IotConfig label="Write" value="fff2"/>
-      </View>
-      <View style={s.iotAtBox}>
-        <Text style={s.iotAtText}>{ROBOT_MQTT_AT_COMMAND}</Text>
-      </View>
-      <View style={{flexDirection:'row', paddingHorizontal:12, paddingBottom:16}}>
-        <Button title="Copy AT Command" variant="light" onPress={copyAtCommand}/>
-      </View>
-    </Card>
-    <Card>
-      <View style={{padding:18}}>
-        <Text style={s.iotSectionTitle}>Bluetooth Send Status</Text>
-        <Text style={s.mutedSmall}>This build can display MQTT data, but it does not yet write BLE commands to the mower. Use the vendor mobile tool to send the copied $AT command, or build a custom app with native BLE support next.</Text>
-      </View>
-    </Card>
-    {error ? <Text style={s.iotError}>{error}</Text> : null}
-    <Text style={s.iotSectionTitle}>Received Messages & Broker Logs</Text>
-    {messages.length === 0 ? (
-      <Card><View style={{padding:22}}><Text style={s.mutedSmall}>No MQTT messages received yet.</Text></View></Card>
-    ) : messages.map((message, index) => (
-      <View key={`${message.received_at}-${index}`} style={s.iotMessageCard}>
-        <View style={s.iotMessageTop}>
-          <Text style={s.iotTopic}>{message.topic}</Text>
-          <Text style={s.iotTime}>{message.received_at.replace('T', ' ').replace('Z', '')}</Text>
-        </View>
-        <Text style={s.iotPayload}>{formatPayload(message)}</Text>
-      </View>
-    ))}
-  </Screen>
-}
-
-function IotConfig({label,value}:{label:string;value:string}) {
-  return <View style={s.iotConfigItem}>
-    <Text style={s.iotConfigLabel}>{label}</Text>
-    <Text style={s.iotConfigValue} numberOfLines={1} adjustsFontSizeToFit>{value}</Text>
-  </View>
-}
-
-function formatPayload(message: IotMqttMessage) {
-  if (message.json) return JSON.stringify(message.json, null, 2);
-  return message.payload;
-}
 function Help({onBack,operation}:{onBack:()=>void;operation:()=>void}) { const [open,setOpen]=useState(true); return <Screen title="Help" onBack={onBack} onClose={onBack}><Card><Text style={s.cardTitle}>Advice and feedback</Text><Row label="💬  Contact Us" onPress={()=>setOpen(!open)}/>{open&&<View style={{paddingHorizontal:24,paddingBottom:20}}><Text style={s.contact}>{'Contact number\n+86 0755 2814 0239'}</Text><Text style={s.contact}>{'Email\ninfo@mygardenos.com'}</Text><Text style={s.contact}>{'Official website\nwww.mygardenos.com'}</Text></View>}<Row label="❔  Operation Help" onPress={operation}/></Card></Screen> }
 function OperationHelp({onBack,openArticle}:{onBack:()=>void;openArticle:(a:Article)=>void}) { const [arts,setArts]=useState<Article[]>([]); useEffect(()=>{api.articles().then(setArts).catch(()=>{})},[]); return <Screen title="Operation Help" onBack={onBack} onClose={onBack}><Card>{arts.map(a=><Row key={a.slug} label={a.title} onPress={()=>openArticle(a)}/>)}</Card></Screen> }
 function ArticleScreen({article,onBack}:{article:Article;onBack:()=>void}) { return <Screen title={article.title} onBack={onBack} onClose={onBack}><View style={s.manual}><Text style={s.manualBadge}>Mowers User Manual</Text><Text style={s.mower}>𐂷</Text><Text style={s.manualBadge}>AN-1600</Text><Text style={s.manualText}>{article.content}</Text></View><View style={s.manual}><Text style={s.manualBadge}>Table of Contents</Text><Text style={s.manualText}>1. Mower Overview ........ 01\n2. Safety Alerts .......... 02-03\n3. Specifications ........ 04\n4. Quick Start Introduction ........ 05-10\n5. Installation and Activation ........ 11-22\n6. Basic Operation of APP ........ 23-33</Text></View></Screen> }

@@ -31,3 +31,12 @@ Default command:
 ```json
 {"command":"$AT,1,10,nozomi.proxy.rlwy.net,53239,admin,admin"}\r\n
 ```
+
+The page also includes a backend monitor. Log in with a MyGardenOS account to poll:
+
+```text
+/iot/mqtt/status
+/iot/mqtt/messages
+```
+
+This shows robot messages plus Mosquitto broker logs published under `$SYS/broker/log/#`.
