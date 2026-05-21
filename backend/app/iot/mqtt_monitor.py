@@ -25,8 +25,8 @@ _lock = threading.Lock()
 def mqtt_settings() -> dict[str, Any]:
     return {
         "enabled": os.getenv("MQTT_MONITOR_ENABLED", "1") == "1",
-        "host": os.getenv("MQTT_HOST", "127.0.0.1"),
-        "port": int(os.getenv("MQTT_PORT", "1883")),
+        "host": os.getenv("MQTT_HOST", "nozomi.proxy.rlwy.net"),
+        "port": int(os.getenv("MQTT_PORT", "53239")),
         "username": os.getenv("MQTT_USERNAME", ""),
         "topics": ["HeartBeat", "ResponseCommand"],
     }

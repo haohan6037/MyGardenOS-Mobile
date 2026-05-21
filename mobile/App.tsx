@@ -1091,6 +1091,8 @@ function IotMqttTest({onBack}:{onBack:()=>void}) {
     await Clipboard.setStringAsync(ROBOT_MQTT_AT_COMMAND);
     Alert.alert('Copied', 'MQTT Bluetooth command copied.');
   };
+  const backendMonitorText = status ? `${status.host}:${status.port}` : 'Loading';
+  const backendMatchesRobot = !!status && status.host === ROBOT_MQTT_HOST && status.port === ROBOT_MQTT_PORT;
 
   return <Screen title="MQTT Setup" onBack={onBack} onClose={onBack} right={<Pressable onPress={load} disabled={loading} hitSlop={10}><Feather name="refresh-cw" size={24} color={colors.green}/></Pressable>}>
     <Card>
@@ -1102,7 +1104,10 @@ function IotMqttTest({onBack}:{onBack:()=>void}) {
         </View>
       </View>
       <View style={{paddingHorizontal:18,paddingTop:14}}>
-        <Text style={s.mutedSmall}>Backend monitor: {status ? `${status.host}:${status.port}` : 'Loading'}</Text>
+        <Text style={s.mutedSmall}>Backend monitor: {backendMonitorText}</Text>
+        {!backendMatchesRobot && status && (
+          <Text style={s.iotError}>Backend MQTT is not pointing at the robot broker yet. Set MQTT_HOST={ROBOT_MQTT_HOST} and MQTT_PORT={ROBOT_MQTT_PORT}, then redeploy backend.</Text>
+        )}
       </View>
       <View style={s.iotConfigGrid}>
         <IotConfig label="Scan" value="NBMower"/>
