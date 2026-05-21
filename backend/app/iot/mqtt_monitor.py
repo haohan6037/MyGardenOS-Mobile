@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import threading
+import time
 from collections import deque
 from datetime import datetime
 from typing import Any, Optional
@@ -83,6 +84,47 @@ def publish_test_heartbeat(robot_id: str = "LOCAL-TEST") -> dict[str, Any]:
         except Exception as exc:
             logger.warning("Failed to publish test heartbeat: %s", exc)
     return {"published": False, "message": record_message("HeartBeat", payload, "local-test")}
+
+
+def publish_robot_command(robot_id: str, command: str) -> dict[str, Any]:
+    robot_id = robot_id.strip()
+    command = command.strip()
+    if not robot_id:
+        raise ValueError("robot_id is required")
+    if not command:
+        raise ValueError("command is required")
+
+    command_code = str(int(time.time() * 1000))
+    topic = f"RobotCommand/{robot_id}"
+    payload = json.dumps(
+        {
+            "robotId": robot_id,
+            "commandCode": command_code,
+            "command": command,
+        },
+        separators=(",", ":"),
+    )
+    if _client is not None:
+        try:
+            info = _client.publish(topic, payload)
+            info.wait_for_publish(timeout=3)
+            return {
+                "published": info.is_published(),
+                "topic": topic,
+                "payload": payload,
+                "commandCode": command_code,
+                "message": record_message(topic, payload, "local-command"),
+            }
+        except Exception as exc:
+            logger.warning("Failed to publish robot command: %s", exc)
+
+    return {
+        "published": False,
+        "topic": topic,
+        "payload": payload,
+        "commandCode": command_code,
+        "message": record_message(topic, payload, "local-command"),
+    }
 
 
 def start_mqtt_monitor() -> bool:

@@ -229,6 +229,7 @@
         <div class="diagnostics">
           <button id="system" class="secondary" disabled>Read $SYSTEM</button>
           <button id="robotStatus" class="secondary" disabled>Read $STATUS</button>
+          <button id="readConfig" class="secondary" disabled>Read $CONFIG,0</button>
           <button id="enable4g" class="secondary" disabled>Enable 4G</button>
           <button id="selfCheck" class="secondary" disabled>Self-check</button>
           <button id="standby" class="secondary" disabled>Standby</button>
@@ -257,11 +258,20 @@
             <label>Password</label>
             <input id="apiPassword" type="password" />
           </div>
+          <div>
+            <label>Robot ID</label>
+            <input id="commandRobotId" value="CD145B0AE7C1" />
+          </div>
+          <div>
+            <label>Cloud command</label>
+            <input id="cloudCommand" value="$SYSTEM" />
+          </div>
         </div>
         <div class="actions">
           <button id="apiLogin">Log In</button>
           <button id="loadMessages" class="secondary" disabled>Refresh Messages</button>
           <button id="toggleAuto" class="secondary" disabled>Start Auto Refresh</button>
+          <button id="sendCloudCommand" class="secondary" disabled>Send RobotCommand</button>
         </div>
         <div id="backendSummary" class="summary"></div>
         <div id="messages" class="messages"></div>
@@ -295,6 +305,7 @@
     const diagnosticButtons = [
       document.querySelector('#system'),
       document.querySelector('#robotStatus'),
+      document.querySelector('#readConfig'),
       document.querySelector('#enable4g'),
       document.querySelector('#selfCheck'),
       document.querySelector('#standby'),
@@ -304,9 +315,12 @@
     const apiBase = document.querySelector('#apiBase');
     const apiEmail = document.querySelector('#apiEmail');
     const apiPassword = document.querySelector('#apiPassword');
+    const commandRobotId = document.querySelector('#commandRobotId');
+    const cloudCommand = document.querySelector('#cloudCommand');
     const apiLogin = document.querySelector('#apiLogin');
     const loadMessages = document.querySelector('#loadMessages');
     const toggleAuto = document.querySelector('#toggleAuto');
+    const sendCloudCommandButton = document.querySelector('#sendCloudCommand');
     const monitorStatus = document.querySelector('#monitorStatus');
     const backendSummary = document.querySelector('#backendSummary');
     const messages = document.querySelector('#messages');
@@ -361,6 +375,9 @@
         if (response.command === '$SYSTEM' && response.code === '00') {
           renderSystemSummary(response.data || '');
         }
+        if (response.command === '$CONFIG,0' && response.code === '00') {
+          renderConfigSummary(response.data || '');
+        }
         if (response.command === '$HEARTBEAT' && response.code === '00') {
           renderBleHeartbeatSummary(response.data || '');
         }
@@ -413,6 +430,26 @@
         ['Task ID', parts[11]],
       ]);
     }
+
+    function renderConfigSummary(data) {
+      const parts = data.split(',');
+      renderSummary([
+        ['Remote speed', parts[0]],
+        ['Remote angular speed', parts[1]],
+        ['Remote blade speed', parts[2]],
+        ['Remote blade height', parts[3]],
+        ['Navigation speed', parts[4]],
+        ['Low work power', parts[9] ? `${parts[9]}%` : '-'],
+        ['Screen lock', parts[11]],
+        ['Light sleep', parts[12]],
+        ['Raindrop', parts[13] === '1' ? 'On' : 'Off'],
+        ['Ultrasonic', parts[14] === '1' ? 'On' : 'Off'],
+        ['Buzzer', parts[15] === '1' ? 'On' : 'Off'],
+        ['4G', parts[16] === '1' ? 'On' : 'Off'],
+        ['Raw', data],
+      ]);
+    }
+
 
     function renderBleHeartbeatSummary(data) {
       const parts = data.split(',');
@@ -517,6 +554,26 @@
         monitorStatus.value = `Logged in as ${result.user.email}`;
         loadMessages.disabled = false;
         toggleAuto.disabled = false;
+        sendCloudCommandButton.disabled = false;
+        await refreshBackendMonitor();
+      } catch (error) {
+        monitorStatus.value = error.message || String(error);
+      }
+    }
+
+    async function sendCloudCommand() {
+      try {
+        monitorStatus.value = 'Sending cloud command...';
+        const result = await apiRequest('/iot/mqtt/robot-command', {
+          method: 'POST',
+          body: JSON.stringify({
+            robotId: commandRobotId.value.trim(),
+            command: cloudCommand.value.trim(),
+          }),
+        });
+        monitorStatus.value = result.published
+          ? `Sent ${result.commandCode} to ${result.topic}`
+          : `Queued locally but MQTT publish was not confirmed`;
         await refreshBackendMonitor();
       } catch (error) {
         monitorStatus.value = error.message || String(error);
@@ -585,8 +642,10 @@
     apiLogin.addEventListener('click', loginBackend);
     loadMessages.addEventListener('click', refreshBackendMonitor);
     toggleAuto.addEventListener('click', toggleAutoRefresh);
+    sendCloudCommandButton.addEventListener('click', sendCloudCommand);
     document.querySelector('#system').addEventListener('click', () => sendCommand('$SYSTEM', 'Read SYSTEM').catch((error) => appendLog(`ERROR ${error.message || error}`)));
     document.querySelector('#robotStatus').addEventListener('click', () => sendCommand('$STATUS', 'Read STATUS').catch((error) => appendLog(`ERROR ${error.message || error}`)));
+    document.querySelector('#readConfig').addEventListener('click', () => sendCommand('$CONFIG,0', 'Read CONFIG').catch((error) => appendLog(`ERROR ${error.message || error}`)));
     document.querySelector('#enable4g').addEventListener('click', () => sendCommand('$CONFIG,1,304,1', 'Enable 4G').catch((error) => appendLog(`ERROR ${error.message || error}`)));
     document.querySelector('#selfCheck').addEventListener('click', () => sendCommand('$ACTION,4', 'Self-check').catch((error) => appendLog(`ERROR ${error.message || error}`)));
     document.querySelector('#standby').addEventListener('click', () => sendCommand('$ACTION,6', 'Standby').catch((error) => appendLog(`ERROR ${error.message || error}`)));
@@ -600,6 +659,7 @@
       monitorStatus.value = 'Saved token available';
       loadMessages.disabled = false;
       toggleAuto.disabled = false;
+      sendCloudCommandButton.disabled = false;
       refreshBackendMonitor();
     }
   </script>

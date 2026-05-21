@@ -16,7 +16,13 @@ from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session, joinedload
 
 from app.database import Base, SessionLocal, engine, get_db
-from app.iot.mqtt_monitor import mqtt_settings, publish_test_heartbeat, recent_messages, start_mqtt_monitor
+from app.iot.mqtt_monitor import (
+    mqtt_settings,
+    publish_robot_command,
+    publish_test_heartbeat,
+    recent_messages,
+    start_mqtt_monitor,
+)
 from app.models.entities import (
     AuthSession,
     Device,
@@ -365,6 +371,19 @@ def iot_mqtt_test_heartbeat(
 ):
     _get_user_from_bearer(authorization, db)
     return publish_test_heartbeat(robot_id)
+
+
+@app.post("/iot/mqtt/robot-command")
+def iot_mqtt_robot_command(
+    body: dict,
+    authorization: Optional[str] = Header(default=None),
+    db: Session = Depends(get_db),
+):
+    _get_user_from_bearer(authorization, db)
+    try:
+        return publish_robot_command(str(body.get("robotId") or ""), str(body.get("command") or ""))
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
 
 
 @app.post("/auth/email/request-code", response_model=RequestEmailCodeOut)
