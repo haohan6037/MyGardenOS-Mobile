@@ -38,6 +38,13 @@ def recent_messages() -> list[dict[str, Any]]:
         return list(_messages)
 
 
+def clear_recent_messages() -> dict[str, int]:
+    with _lock:
+        count = len(_messages)
+        _messages.clear()
+    return {"cleared": count}
+
+
 def record_message(topic: str, payload: str, source: str = "mqtt") -> dict[str, Any]:
     parsed: Any = None
     try:

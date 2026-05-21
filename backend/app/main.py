@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.database import Base, SessionLocal, engine, get_db
 from app.iot.mqtt_monitor import (
+    clear_recent_messages,
     mqtt_settings,
     publish_robot_command,
     publish_test_heartbeat,
@@ -371,6 +372,11 @@ def iot_mqtt_messages(
 @app.get("/iot/mqtt/public/messages")
 def iot_mqtt_public_messages():
     return recent_messages()
+
+
+@app.post("/iot/mqtt/public/messages/clear")
+def iot_mqtt_public_messages_clear():
+    return clear_recent_messages()
 
 
 @app.post("/iot/mqtt/test-heartbeat")

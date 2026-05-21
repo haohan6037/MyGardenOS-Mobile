@@ -272,6 +272,7 @@
           <button id="apiLogin">Log In</button>
           <button id="loadMessages" class="secondary">Refresh Messages</button>
           <button id="toggleAuto" class="secondary">Start Auto Refresh</button>
+          <button id="clearMessages" class="secondary">Clear Messages</button>
           <button id="sendCloudCommand" class="secondary" disabled>Send RobotCommand</button>
         </div>
         <div id="backendSummary" class="summary"></div>
@@ -322,6 +323,7 @@
     const apiLogin = document.querySelector('#apiLogin');
     const loadMessages = document.querySelector('#loadMessages');
     const toggleAuto = document.querySelector('#toggleAuto');
+    const clearMessagesButton = document.querySelector('#clearMessages');
     const sendCloudCommandButton = document.querySelector('#sendCloudCommand');
     const monitorStatus = document.querySelector('#monitorStatus');
     const backendSummary = document.querySelector('#backendSummary');
@@ -617,6 +619,17 @@
       }
     }
 
+    async function clearBackendMessages() {
+      try {
+        const result = await apiRequest('/iot/mqtt/public/messages/clear', { method: 'POST' });
+        renderMessages([]);
+        monitorStatus.value = `Cleared ${result.cleared || 0} messages`;
+        await refreshBackendMonitor();
+      } catch (error) {
+        monitorStatus.value = error.message || String(error);
+      }
+    }
+
     function renderMessages(list) {
       if (!list.length) {
         messages.innerHTML = '<p>No MQTT messages or broker logs received yet.</p>';
@@ -661,6 +674,7 @@
     apiLogin.addEventListener('click', loginBackend);
     loadMessages.addEventListener('click', refreshBackendMonitor);
     toggleAuto.addEventListener('click', toggleAutoRefresh);
+    clearMessagesButton.addEventListener('click', clearBackendMessages);
     sendCloudCommandButton.addEventListener('click', sendCloudCommand);
     document.querySelector('#system').addEventListener('click', () => sendCommand('$SYSTEM', 'Read SYSTEM').catch((error) => appendLog(`ERROR ${error.message || error}`)));
     document.querySelector('#robotStatus').addEventListener('click', () => sendCommand('$STATUS', 'Read STATUS').catch((error) => appendLog(`ERROR ${error.message || error}`)));
