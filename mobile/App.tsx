@@ -15,6 +15,9 @@ import { LoginScreen } from './src/screens/LoginScreen';
 
 type Route = 'home'|'login'|'addDevice'|'deviceDetail'|'profile'|'account'|'families'|'familyDetail'|'notifications'|'notificationSettings'|'iotTest'|'help'|'operationHelp'|'article'|'about'|'general'|'text';
 type ScheduleTime = { hour: number; minute: number; period: 'AM' | 'PM' };
+const ROBOT_MQTT_HOST = 'nozomi.proxy.rlwy.net';
+const ROBOT_MQTT_PORT = 53239;
+const ROBOT_MQTT_AT_COMMAND = `{"command":"$AT,1,10,${ROBOT_MQTT_HOST},${ROBOT_MQTT_PORT},admin,admin"}\\r\\n`;
 
 export default function App() {
   return (
@@ -1085,15 +1088,22 @@ function IotMqttTest({onBack}:{onBack:()=>void}) {
       setLoading(false);
     }
   };
+  const copyAtCommand = async () => {
+    await Clipboard.setStringAsync(ROBOT_MQTT_AT_COMMAND);
+    Alert.alert('Copied', 'MQTT Bluetooth command copied.');
+  };
 
-  return <Screen title="MQTT Test" onBack={onBack} onClose={onBack} right={<Pressable onPress={load} disabled={loading} hitSlop={10}><Feather name="refresh-cw" size={24} color={colors.green}/></Pressable>}>
+  return <Screen title="MQTT Setup" onBack={onBack} onClose={onBack} right={<Pressable onPress={load} disabled={loading} hitSlop={10}><Feather name="refresh-cw" size={24} color={colors.green}/></Pressable>}>
     <Card>
       <View style={s.iotHeader}>
         <MaterialCommunityIcons name="access-point-network" size={34} color={colors.green}/>
         <View style={{flex:1}}>
-          <Text style={s.iotTitle}>Local MQTT Monitor</Text>
-          <Text style={s.iotMuted}>{status ? `${status.host}:${status.port}` : 'Loading broker status'}</Text>
+          <Text style={s.iotTitle}>Robot MQTT Access</Text>
+          <Text style={s.iotMuted}>{`${ROBOT_MQTT_HOST}:${ROBOT_MQTT_PORT}`}</Text>
         </View>
+      </View>
+      <View style={{paddingHorizontal:18,paddingTop:14}}>
+        <Text style={s.mutedSmall}>Backend monitor: {status ? `${status.host}:${status.port}` : 'Loading'}</Text>
       </View>
       <View style={s.iotConfigGrid}>
         <IotConfig label="Scan" value="NBMower"/>
@@ -1102,7 +1112,16 @@ function IotMqttTest({onBack}:{onBack:()=>void}) {
         <IotConfig label="Write" value="fff2"/>
       </View>
       <View style={s.iotAtBox}>
-        <Text style={s.iotAtText}>{'{"command":"$AT,1,10,192.168.68.181,1883,admin,admin"}\\r\\n'}</Text>
+        <Text style={s.iotAtText}>{ROBOT_MQTT_AT_COMMAND}</Text>
+      </View>
+      <View style={{flexDirection:'row', paddingHorizontal:12, paddingBottom:16}}>
+        <Button title="Copy AT Command" variant="light" onPress={copyAtCommand}/>
+      </View>
+    </Card>
+    <Card>
+      <View style={{padding:18}}>
+        <Text style={s.iotSectionTitle}>Bluetooth Send Status</Text>
+        <Text style={s.mutedSmall}>This build can display MQTT data, but it does not yet write BLE commands to the mower. Use the vendor mobile tool to send the copied $AT command, or build a custom app with native BLE support next.</Text>
       </View>
     </Card>
     {error ? <Text style={s.iotError}>{error}</Text> : null}
