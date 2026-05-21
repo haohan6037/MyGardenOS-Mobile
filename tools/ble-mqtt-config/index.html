@@ -112,6 +112,33 @@
       max-height: 320px;
       overflow: auto;
     }
+    .diagnostics {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 14px;
+    }
+    .diagnostics button {
+      min-height: 50px;
+    }
+    .summary {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 12px;
+    }
+    .summary div {
+      border: 1px solid var(--line);
+      background: #f8fcf9;
+      border-radius: 8px;
+      padding: 10px;
+    }
+    .summary b {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      margin-bottom: 4px;
+    }
     @media (max-width: 640px) {
       body { padding: 18px; }
       .grid { grid-template-columns: 1fr; }
@@ -157,6 +184,20 @@
     </section>
 
     <section class="card">
+      <h2>Robot Diagnostics</h2>
+      <p>Use these after MQTT config is saved. They help confirm the robot system, status, 4G switch, and working mode.</p>
+      <div class="diagnostics">
+        <button id="system" class="secondary" disabled>Read $SYSTEM</button>
+        <button id="robotStatus" class="secondary" disabled>Read $STATUS</button>
+        <button id="enable4g" class="secondary" disabled>Enable 4G</button>
+        <button id="selfCheck" class="secondary" disabled>Self-check</button>
+        <button id="standby" class="secondary" disabled>Standby</button>
+        <button id="remote" class="secondary" disabled>Remote Mode</button>
+      </div>
+      <div id="summary" class="summary"></div>
+    </section>
+
+    <section class="card">
       <h2>BLE Channel</h2>
       <p>Scan name: <b>NBMower</b> · Service: <b>fff0</b> · Read/notify: <b>fff1</b> · Write: <b>fff2</b></p>
       <pre id="log" class="log"></pre>
@@ -180,6 +221,15 @@
     const readButton = document.querySelector('#read');
     const writeButton = document.querySelector('#write');
     const disconnectButton = document.querySelector('#disconnect');
+    const diagnosticButtons = [
+      document.querySelector('#system'),
+      document.querySelector('#robotStatus'),
+      document.querySelector('#enable4g'),
+      document.querySelector('#selfCheck'),
+      document.querySelector('#standby'),
+      document.querySelector('#remote'),
+    ];
+    const summary = document.querySelector('#summary');
 
     let device;
     let server;
@@ -203,18 +253,84 @@
       readButton.disabled = !connected;
       writeButton.disabled = !connected;
       disconnectButton.disabled = !connected;
+      diagnosticButtons.forEach((button) => button.disabled = !connected);
       connectButton.disabled = connected;
       statusText.textContent = connected ? `Connected to ${device?.name || 'device'}` : 'Not connected';
     }
 
-    async function writeText(value) {
+    async function writeText(value, label = 'TX') {
       const bytes = new TextEncoder().encode(value);
       if (writeCharacteristic.writeValueWithResponse) {
         await writeCharacteristic.writeValueWithResponse(bytes);
       } else {
         await writeCharacteristic.writeValue(bytes);
       }
-      appendLog(`TX ${value.replace(/\r/g, '\\r').replace(/\n/g, '\\n')}`);
+      appendLog(`${label} ${value.replace(/\r/g, '\\r').replace(/\n/g, '\\n')}`);
+    }
+
+    function parseRobotResponse(text) {
+      const clean = text.trim();
+      if (!clean.startsWith('{')) return;
+      try {
+        const response = JSON.parse(clean);
+        if (response.command === '$STATUS' && response.code === '00') {
+          renderStatusSummary(response.data || '');
+        }
+        if (response.command === '$SYSTEM' && response.code === '00') {
+          renderSystemSummary(response.data || '');
+        }
+      } catch {
+        // Keep raw log only.
+      }
+    }
+
+    function renderSummary(items) {
+      summary.innerHTML = items.map(([label, value]) => `<div><b>${label}</b>${value || '-'}</div>`).join('');
+    }
+
+    function renderSystemSummary(data) {
+      const parts = data.split(',');
+      renderSummary([
+        ['Software', parts[0]],
+        ['App sync', parts[1]],
+        ['Model', parts[2]],
+        ['ESIM ICCID', parts[3]],
+        ['Robot ID', parts[4]],
+        ['BLE version', parts[5]],
+        ['4G version', parts[6]],
+        ['RTK version', parts[7]],
+      ]);
+    }
+
+    function renderStatusSummary(data) {
+      const parts = data.split(',');
+      const systemMap = { '0': 'Self-check', '1': 'Running', '2': 'Deep sleep/off', '3': 'Light sleep' };
+      const modeMap = {
+        '0': 'Idle',
+        '1': 'Remote',
+        '2': 'Go mapping start',
+        '3': 'Border',
+        '4': 'Go charge path start',
+        '5': 'Go work path start',
+        '6': 'Working path',
+        '7': 'Docking',
+      };
+      renderSummary([
+        ['System', systemMap[parts[0]] || parts[0]],
+        ['Self-check complete', parts[1] === '1' ? 'Yes' : 'No'],
+        ['Alarm', parts[2]],
+        ['Unlocked', parts[3] === '1' ? 'Yes' : 'No'],
+        ['Mode', modeMap[parts[4]] || parts[4]],
+        ['Paused', parts[5] === '1' ? 'No' : 'Yes'],
+        ['On dock', parts[6] === '1' ? 'Yes' : 'No'],
+        ['Battery', parts[9] ? `${parts[9]}%` : '-'],
+        ['Temperature', parts[10] ? `${parts[10]} C` : '-'],
+        ['Task ID', parts[11]],
+      ]);
+    }
+
+    async function sendCommand(commandValue, label = commandValue) {
+      await writeText(`{"command":"${commandValue}"}\r\n`, label);
     }
 
     async function connect() {
@@ -241,6 +357,7 @@
         readCharacteristic.addEventListener('characteristicvaluechanged', (event) => {
           const text = new TextDecoder().decode(event.target.value);
           appendLog(`RX ${text.replace(/\r/g, '\\r').replace(/\n/g, '\\n')}`);
+          parseRobotResponse(text);
         });
         setConnected(true);
         appendLog('Connected and notifications enabled');
@@ -252,7 +369,7 @@
 
     async function readAt() {
       try {
-        await writeText('{"command":"$AT,0"}\r\n');
+        await sendCommand('$AT,0', 'Read AT');
       } catch (error) {
         appendLog(`ERROR ${error.message || error}`);
       }
@@ -276,6 +393,12 @@
     readButton.addEventListener('click', readAt);
     writeButton.addEventListener('click', writeConfig);
     disconnectButton.addEventListener('click', disconnect);
+    document.querySelector('#system').addEventListener('click', () => sendCommand('$SYSTEM', 'Read SYSTEM').catch((error) => appendLog(`ERROR ${error.message || error}`)));
+    document.querySelector('#robotStatus').addEventListener('click', () => sendCommand('$STATUS', 'Read STATUS').catch((error) => appendLog(`ERROR ${error.message || error}`)));
+    document.querySelector('#enable4g').addEventListener('click', () => sendCommand('$CONFIG,1,304,1', 'Enable 4G').catch((error) => appendLog(`ERROR ${error.message || error}`)));
+    document.querySelector('#selfCheck').addEventListener('click', () => sendCommand('$ACTION,4', 'Self-check').catch((error) => appendLog(`ERROR ${error.message || error}`)));
+    document.querySelector('#standby').addEventListener('click', () => sendCommand('$ACTION,6', 'Standby').catch((error) => appendLog(`ERROR ${error.message || error}`)));
+    document.querySelector('#remote').addEventListener('click', () => sendCommand('$ACTION,0', 'Remote').catch((error) => appendLog(`ERROR ${error.message || error}`)));
 
     updateCommand();
     if (!navigator.bluetooth) {
