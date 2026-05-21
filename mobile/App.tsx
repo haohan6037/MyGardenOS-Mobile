@@ -1119,7 +1119,7 @@ function IotMqttTest({onBack}:{onBack:()=>void}) {
       </View>
     </Card>
     {error ? <Text style={s.iotError}>{error}</Text> : null}
-    <Text style={s.iotSectionTitle}>Received Messages</Text>
+    <Text style={s.iotSectionTitle}>Received Messages & Broker Logs</Text>
     {messages.length === 0 ? (
       <Card><View style={{padding:22}}><Text style={s.mutedSmall}>No MQTT messages received yet.</Text></View></Card>
     ) : messages.map((message, index) => (

@@ -28,7 +28,7 @@ def mqtt_settings() -> dict[str, Any]:
         "host": os.getenv("MQTT_HOST", "nozomi.proxy.rlwy.net"),
         "port": int(os.getenv("MQTT_PORT", "53239")),
         "username": os.getenv("MQTT_USERNAME", ""),
-        "topics": ["HeartBeat", "ResponseCommand"],
+        "topics": ["HeartBeat", "ResponseCommand", "$SYS/broker/log/#"],
     }
 
 
