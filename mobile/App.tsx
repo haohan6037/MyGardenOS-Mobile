@@ -1077,16 +1077,6 @@ function IotMqttTest({onBack}:{onBack:()=>void}) {
     return () => clearInterval(timer);
   }, []);
 
-  const sendTest = async () => {
-    try {
-      setLoading(true);
-      await api.publishTestHeartbeat();
-      await load();
-    } catch (e:any) {
-      setError(e?.message || 'Unable to publish test heartbeat.');
-      setLoading(false);
-    }
-  };
   const copyAtCommand = async () => {
     await Clipboard.setStringAsync(ROBOT_MQTT_AT_COMMAND);
     Alert.alert('Copied', 'MQTT Bluetooth command copied.');
@@ -1129,9 +1119,6 @@ function IotMqttTest({onBack}:{onBack:()=>void}) {
       </View>
     </Card>
     {error ? <Text style={s.iotError}>{error}</Text> : null}
-    <View style={{flexDirection:'row', marginBottom:18}}>
-      <Button title={loading ? 'Loading...' : 'Simulate HeartBeat'} onPress={sendTest}/>
-    </View>
     <Text style={s.iotSectionTitle}>Received Messages</Text>
     {messages.length === 0 ? (
       <Card><View style={{padding:22}}><Text style={s.mutedSmall}>No MQTT messages received yet.</Text></View></Card>
