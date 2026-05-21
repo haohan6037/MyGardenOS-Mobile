@@ -24,6 +24,7 @@ export function LoginScreen({ onBack }: { onBack?: () => void } = {}) {
   const [verifyToken, setVerifyToken] = useState('');
   const [loading, setLoading] = useState(false);
   const [timer, setTimer] = useState(0);
+  const [errorMessage, setErrorMessage] = useState('');
 
   const validatePassword = (value: string): string | null => {
     if (value.length < 8) return 'Password must be at least 8 characters';
@@ -41,16 +42,36 @@ export function LoginScreen({ onBack }: { onBack?: () => void } = {}) {
 
   const isLikelyEmail = (value: string): boolean => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 
+  const friendlyApiError = (raw: string): string => {
+    const withoutStatus = raw.replace(/^\d{3}\s*/, '').trim();
+    try {
+      const parsed = JSON.parse(withoutStatus);
+      if (typeof parsed?.detail === 'string') return parsed.detail;
+    } catch {
+      // Fall through to text cleanup.
+    }
+    return withoutStatus
+      .replace(/^\{.*?"detail"\s*:\s*"?/, '')
+      .replace(/"?\}?$/, '')
+      .trim();
+  };
+
+  const showError = (title: string, message: string, actions?: Parameters<typeof Alert.alert>[2]) => {
+    setErrorMessage(message);
+    Alert.alert(title, message, actions);
+  };
+
   const loginWithPassword = async () => {
+    setErrorMessage('');
     const cleanEmail = sanitizeEmail(email);
     if (cleanEmail !== email) setEmail(cleanEmail);
     if (!isLikelyEmail(cleanEmail)) {
-      Alert.alert('Error', 'Please enter a valid email');
+      showError('Error', 'Please enter a valid email');
       return;
     }
     const passwordError = validatePassword(password);
     if (passwordError) {
-      Alert.alert('Error', passwordError);
+      showError('Error', passwordError);
       return;
     }
     setLoading(true);
@@ -63,33 +84,27 @@ export function LoginScreen({ onBack }: { onBack?: () => void } = {}) {
       const isNoPassword = raw.startsWith('409') || /password not set/i.test(raw);
       const isBadEmail = raw.startsWith('422') || /not a valid email/i.test(raw);
       if (isNotFound) {
-        Alert.alert(
+        showError(
           'Account not found',
           `No account is registered for ${cleanEmail}. Would you like to sign up for a new account with this email?`,
           [
             { text: 'Cancel', style: 'cancel' },
-            { text: 'Sign Up', onPress: () => { setPassword(''); setCode(''); setStep('register_email'); } },
+            { text: 'Sign Up', onPress: () => { setErrorMessage(''); setPassword(''); setCode(''); setStep('register_email'); } },
           ]
         );
       } else if (isNoPassword) {
-        Alert.alert(
+        showError(
           'Password not set',
           `This email has not finished registration. Please complete sign up to set a password.`,
           [
             { text: 'Cancel', style: 'cancel' },
-            { text: 'Sign Up', onPress: () => { setPassword(''); setCode(''); setStep('register_email'); } },
+            { text: 'Sign Up', onPress: () => { setErrorMessage(''); setPassword(''); setCode(''); setStep('register_email'); } },
           ]
         );
       } else if (isBadEmail) {
-        Alert.alert('Invalid email', 'The email address looks invalid. Please retype it.');
+        showError('Invalid email', 'The email address looks invalid. Please retype it.');
       } else {
-        // Strip HTTP status / JSON envelope for nicer display
-        const friendly = raw
-          .replace(/^\d{3}\s*/, '')
-          .replace(/^\{.*?"detail"\s*:\s*"?/, '')
-          .replace(/"?\}?$/, '')
-          .trim();
-        Alert.alert('Login failed', friendly || 'Login failed');
+        showError('Login failed', friendlyApiError(raw) || 'Login failed');
       }
     } finally {
       setLoading(false);
@@ -277,6 +292,7 @@ export function LoginScreen({ onBack }: { onBack?: () => void } = {}) {
             editable={!loading}
             secureTextEntry
           />
+          {!!errorMessage && <Text style={s.errorText}>{errorMessage}</Text>}
           <Pressable style={[s.button, loading && s.buttonDisabled]} onPress={loginWithPassword} disabled={loading}>
             <Text style={s.buttonText}>{loading ? 'Logging in...' : 'Continue'}</Text>
           </Pressable>
@@ -495,6 +511,19 @@ const s = StyleSheet.create({
     fontSize: 16,
     marginBottom: 20,
     color: '#333',
+  },
+  errorText: {
+    color: colors.darkRed,
+    backgroundColor: '#FDECEC',
+    borderColor: '#F4B8B8',
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 14,
+    lineHeight: 20,
+    marginTop: -6,
+    marginBottom: 16,
   },
   button: {
     backgroundColor: colors.green,
