@@ -454,18 +454,8 @@ function AddDevice({onBack,onBound}:{onBack:()=>void;onBound:(device:Device)=>vo
   const [selectedDevice,setSelectedDevice]=useState<BluetoothDevice|null>(null);
   const [devicePassword,setDevicePassword]=useState('');
 
-  const defaultMower: BluetoothDevice = {
-    peripheral_id: 'nbmower-CD145B0AE7C1',
-    serial: 'CD145B0AE7C1',
-    name: 'Mower',
-    model: 'NBMower',
-    rssi: -59,
-    is_bound: false,
-    status: 'available',
-  };
   const normalizeMowerList = (devices: BluetoothDevice[]) => {
-    const hasDefault = devices.some((d) => d.serial === defaultMower.serial || `${d.name} ${d.model}`.toLowerCase().includes('nbmower'));
-    return hasDefault ? devices : [defaultMower, ...devices];
+    return devices.filter((device) => !device.serial.startsWith('MOCK-'));
   };
   const openPassword = (device: BluetoothDevice) => {
     setSelectedDevice(device);
@@ -519,7 +509,7 @@ function AddDevice({onBack,onBound}:{onBack:()=>void;onBound:(device:Device)=>vo
       {found.length === 0 ? (
         <>
           <Text style={s.addDeviceTitle}>Search in Devices</Text>
-          <Text style={s.addDeviceCopy}>Please activate the Bluetooth functionalities, then position yourself in close proximity to the target device you intend to locate. Proceed to wait patiently in this position.</Text>
+          <Text style={s.addDeviceCopy}>Real Bluetooth scanning is not enabled in this build yet. This screen only shows platform-discovered devices after the backend receives them.</Text>
           <Pressable style={s.selectDeviceButton} onPress={search} disabled={scanning}>
             <Text style={s.selectDeviceButtonText}>{scanning ? 'Searching...' : 'Select Device'}</Text>
           </Pressable>
