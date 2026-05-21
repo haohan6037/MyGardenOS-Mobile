@@ -241,7 +241,7 @@
 
       <section class="card">
         <h2>Backend MQTT Monitor</h2>
-        <p>Log in to the Railway backend, then this page will poll broker logs and robot MQTT messages.</p>
+        <p>This reads public MQTT broker logs and robot messages. Log in only when you need to send RobotCommand.</p>
         <div class="grid">
           <div>
             <label>Backend API</label>
@@ -270,8 +270,8 @@
         </div>
         <div class="actions">
           <button id="apiLogin">Log In</button>
-          <button id="loadMessages" class="secondary" disabled>Refresh Messages</button>
-          <button id="toggleAuto" class="secondary" disabled>Start Auto Refresh</button>
+          <button id="loadMessages" class="secondary">Refresh Messages</button>
+          <button id="toggleAuto" class="secondary">Start Auto Refresh</button>
           <button id="sendCloudCommand" class="secondary" disabled>Send RobotCommand</button>
         </div>
         <div id="backendSummary" class="summary"></div>
@@ -601,8 +601,8 @@
     async function refreshBackendMonitor() {
       try {
         const [status, list] = await Promise.all([
-          apiRequest('/iot/mqtt/status'),
-          apiRequest('/iot/mqtt/messages'),
+          apiRequest('/iot/mqtt/public/status'),
+          apiRequest('/iot/mqtt/public/messages'),
         ]);
         backendSummary.innerHTML = [
           ['Enabled', String(status.enabled)],
@@ -676,11 +676,9 @@
     }
     if (apiToken) {
       monitorStatus.value = 'Saved token available';
-      loadMessages.disabled = false;
-      toggleAuto.disabled = false;
       sendCloudCommandButton.disabled = false;
-      refreshBackendMonitor();
     }
+    refreshBackendMonitor();
   </script>
 </body>
 </html>

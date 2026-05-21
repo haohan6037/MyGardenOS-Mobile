@@ -354,12 +354,22 @@ def iot_mqtt_status(
     return mqtt_settings()
 
 
+@app.get("/iot/mqtt/public/status")
+def iot_mqtt_public_status():
+    return mqtt_settings()
+
+
 @app.get("/iot/mqtt/messages")
 def iot_mqtt_messages(
     authorization: Optional[str] = Header(default=None),
     db: Session = Depends(get_db),
 ):
     _get_user_from_bearer(authorization, db)
+    return recent_messages()
+
+
+@app.get("/iot/mqtt/public/messages")
+def iot_mqtt_public_messages():
     return recent_messages()
 
 
