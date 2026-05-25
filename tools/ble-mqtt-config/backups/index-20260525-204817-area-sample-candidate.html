@@ -499,7 +499,7 @@
     const SERVICE_UUID = '0000fff0-0000-1000-8000-00805f9b34fb';
     const READ_UUID = '0000fff1-0000-1000-8000-00805f9b34fb';
     const WRITE_UUID = '0000fff2-0000-1000-8000-00805f9b34fb';
-    const DEFAULT_MAP_VERSION = 'manual-map-90191082715388549-v3-sample-region-tail';
+    const DEFAULT_MAP_VERSION = 'manual-map-90191082715388549-v2-new-protocol';
     const SAMPLE_MAP_COMMANDS = [
       '$MAP,0,0,0,0,90191082715388544,2,1,45.3,1,1,1,1,1,1,1,1,1,1,62785',
       '$ACTION,5,0',
@@ -1306,10 +1306,6 @@
         .filter((line) => line && !line.startsWith('#'));
     }
 
-    function protocolSampleRegionTail() {
-      return mapCommandLinesFrom(SAMPLE_MAP_COMMANDS).filter((line) => !line.startsWith('$MAP,0,0'));
-    }
-
     function crc16Usb(value) {
       let crc = 0xffff;
       for (const byte of new TextEncoder().encode(value)) {
@@ -1538,13 +1534,14 @@
       const existingCrc = commandValue.split(',').at(-1);
       const candidates = [
         ['current', existingCrc],
+        ['robot-ack-data', lastMapAckCrc],
         ['usb', crcForMode(base, 'usb')],
         ['protocol-table', crcForMode(base, 'protocol-table')],
         ['modbus', crcForMode(base, 'modbus')],
         ['xmodem', crcForMode(base, 'xmodem')],
       ];
       const seen = new Set();
-      const crcCandidates = candidates
+      return candidates
         .filter(([, crc]) => crc !== undefined && crc !== null && String(crc).trim())
         .map(([label, crc]) => [label, String(crc).trim()])
         .filter(([, crc]) => {
@@ -1553,12 +1550,6 @@
           return true;
         })
         .map(([label, crc]) => ({ label, command: `${base},${crc}` }));
-      const samplePacket = mapCommandLinesFrom(SAMPLE_MAP_COMMANDS)
-        .find((line) => robotAckKey(line) === robotAckKey(commandValue));
-      if (samplePacket && !crcCandidates.some((candidate) => candidate.command === samplePacket)) {
-          crcCandidates.splice(1, 0, { label: 'protocol-sample-exact', command: samplePacket });
-        }
-      return crcCandidates;
     }
 
     async function sendMapCommandWithCrcFallback(commandValue) {
@@ -1583,6 +1574,13 @@
           if (response.code === '00') {
             if (candidate.command !== commandValue) appendLog(`MAP CRC FIX ${candidate.label} ${candidate.command}`);
             return { response, command: candidate.command };
+          }
+          const ackCrc = String(response.data || '').trim();
+          if (response.message === 'crc fail' && ackCrc) {
+            const ackCommand = replaceMapCrc(candidate.command, ackCrc);
+            if (!triedCommands.has(ackCommand)) {
+              candidates.splice(index, 0, { label: `ack-data-${ackCrc}`, command: ackCommand });
+            }
           }
           if (response.message !== 'crc fail') break;
         } catch (error) {
@@ -1721,8 +1719,8 @@
             if (response.code === '00') {
               const updatedLines = candidate.lines
                 ? [...candidate.lines]
-                : [candidate.command, ...protocolSampleRegionTail()];
-              mapCommandsUseFixedCrc = true;
+                : originalLines.map((line) => line.startsWith('$MAP,0,0') ? candidate.command : line);
+              mapCommandsUseFixedCrc = Boolean(candidate.fixedCrc);
               if (candidate.mode) mapCrcMode.value = candidate.mode;
               mapCommands.value = updatedLines.join('\n');
               localStorage.setItem('mygardenos_map_commands', mapCommands.value);

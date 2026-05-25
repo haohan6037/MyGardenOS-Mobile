@@ -499,7 +499,7 @@
     const SERVICE_UUID = '0000fff0-0000-1000-8000-00805f9b34fb';
     const READ_UUID = '0000fff1-0000-1000-8000-00805f9b34fb';
     const WRITE_UUID = '0000fff2-0000-1000-8000-00805f9b34fb';
-    const DEFAULT_MAP_VERSION = 'manual-map-90191082715388549-v3-sample-region-tail';
+    const DEFAULT_MAP_VERSION = 'manual-map-90191082715388549-v2-new-protocol';
     const SAMPLE_MAP_COMMANDS = [
       '$MAP,0,0,0,0,90191082715388544,2,1,45.3,1,1,1,1,1,1,1,1,1,1,62785',
       '$ACTION,5,0',
@@ -1306,10 +1306,6 @@
         .filter((line) => line && !line.startsWith('#'));
     }
 
-    function protocolSampleRegionTail() {
-      return mapCommandLinesFrom(SAMPLE_MAP_COMMANDS).filter((line) => !line.startsWith('$MAP,0,0'));
-    }
-
     function crc16Usb(value) {
       let crc = 0xffff;
       for (const byte of new TextEncoder().encode(value)) {
@@ -1553,11 +1549,12 @@
           return true;
         })
         .map(([label, crc]) => ({ label, command: `${base},${crc}` }));
-      const samplePacket = mapCommandLinesFrom(SAMPLE_MAP_COMMANDS)
-        .find((line) => robotAckKey(line) === robotAckKey(commandValue));
-      if (samplePacket && !crcCandidates.some((candidate) => candidate.command === samplePacket)) {
-          crcCandidates.splice(1, 0, { label: 'protocol-sample-exact', command: samplePacket });
+      if (robotAckKey(commandValue) === '$MAP,1,1,0') {
+        const sampleArea = mapCommandLinesFrom(SAMPLE_MAP_COMMANDS).find((line) => line.startsWith('$MAP,1,1,0'));
+        if (sampleArea && !crcCandidates.some((candidate) => candidate.command === sampleArea)) {
+          crcCandidates.splice(1, 0, { label: 'protocol-sample-area-exact', command: sampleArea });
         }
+      }
       return crcCandidates;
     }
 
@@ -1721,8 +1718,8 @@
             if (response.code === '00') {
               const updatedLines = candidate.lines
                 ? [...candidate.lines]
-                : [candidate.command, ...protocolSampleRegionTail()];
-              mapCommandsUseFixedCrc = true;
+                : originalLines.map((line) => line.startsWith('$MAP,0,0') ? candidate.command : line);
+              mapCommandsUseFixedCrc = Boolean(candidate.fixedCrc);
               if (candidate.mode) mapCrcMode.value = candidate.mode;
               mapCommands.value = updatedLines.join('\n');
               localStorage.setItem('mygardenos_map_commands', mapCommands.value);

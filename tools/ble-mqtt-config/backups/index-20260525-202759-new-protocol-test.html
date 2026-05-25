@@ -499,7 +499,7 @@
     const SERVICE_UUID = '0000fff0-0000-1000-8000-00805f9b34fb';
     const READ_UUID = '0000fff1-0000-1000-8000-00805f9b34fb';
     const WRITE_UUID = '0000fff2-0000-1000-8000-00805f9b34fb';
-    const DEFAULT_MAP_VERSION = 'manual-map-90191082715388549-v3-sample-region-tail';
+    const DEFAULT_MAP_VERSION = 'manual-map-90191082715388549-v1';
     const SAMPLE_MAP_COMMANDS = [
       '$MAP,0,0,0,0,90191082715388544,2,1,45.3,1,1,1,1,1,1,1,1,1,1,62785',
       '$ACTION,5,0',
@@ -626,7 +626,6 @@
     let autoRunCancelled = false;
     let autoRunActive = false;
     let autoHeaderFailedCandidates = 0;
-    let mapCommandsUseFixedCrc = false;
     const AUTO_RUN_AFTER_CONNECT = true;
     const AUTO_TEST_MAX_FAILURES = 5;
     const AUTO_TEST_VERSION = `${DEFAULT_MAP_VERSION}:auto-test-v1`;
@@ -1160,14 +1159,6 @@
       return `${base},${mapCrc(base)}`;
     }
 
-    function crcForMode(base, mode) {
-      const originalMode = mapCrcMode.value;
-      mapCrcMode.value = mode;
-      const crc = mapCrc(base);
-      mapCrcMode.value = originalMode;
-      return crc;
-    }
-
     function buildManualMapCommands() {
       if (recordedPoints.length < 3) throw new Error('At least 3 recorded points are required');
       const boundaryPoints = [...recordedPoints];
@@ -1235,7 +1226,6 @@
     function generateManualMapCommands() {
       try {
         const commands = buildManualMapCommands();
-        mapCommandsUseFixedCrc = false;
         mapCommands.value = commands.join('\n');
         localStorage.setItem('mygardenos_map_commands', mapCommands.value);
         renderMapCommandSummary();
@@ -1304,10 +1294,6 @@
         .split('\n')
         .map((line) => line.trim())
         .filter((line) => line && !line.startsWith('#'));
-    }
-
-    function protocolSampleRegionTail() {
-      return mapCommandLinesFrom(SAMPLE_MAP_COMMANDS).filter((line) => !line.startsWith('$MAP,0,0'));
     }
 
     function crc16Usb(value) {
@@ -1416,7 +1402,6 @@
         ...(hasSaveMap ? [] : ['$ACTION,5,0']),
         ...(hasSaveArea ? [] : ['$ACTION,5,1']),
       ].join('\n');
-      mapCommandsUseFixedCrc = true;
       localStorage.setItem('mygardenos_map_commands', mapCommands.value);
       renderMapCommandSummary();
     }
@@ -1429,7 +1414,6 @@
       mapPacketPointCount.value = '5';
       capturedMapCommands.value = DEFAULT_MAP_COMMANDS;
       mapCommands.value = DEFAULT_MAP_COMMANDS;
-      mapCommandsUseFixedCrc = true;
       localStorage.setItem('mygardenos_captured_map_commands', capturedMapCommands.value);
       localStorage.setItem('mygardenos_map_commands', mapCommands.value);
       localStorage.setItem('mygardenos_dock_pose', dockPose.value);
@@ -1441,9 +1425,6 @@
     }
 
     function recalculateCurrentMapCommands() {
-      if (mapCommandsUseFixedCrc) {
-        return mapCommandLines().map((line) => normalizeRobotCommand(line));
-      }
       const recalculated = mapCommandLines().map((line) => {
         const commandValue = normalizeRobotCommand(line);
         return commandValue.startsWith('$MAP,') ? recalculateMapCrc(commandValue) : commandValue;
@@ -1533,67 +1514,6 @@
       });
     }
 
-    function mapCrcCandidates(commandValue) {
-      const base = commandValue.split(',').slice(0, -1).join(',');
-      const existingCrc = commandValue.split(',').at(-1);
-      const candidates = [
-        ['current', existingCrc],
-        ['usb', crcForMode(base, 'usb')],
-        ['protocol-table', crcForMode(base, 'protocol-table')],
-        ['modbus', crcForMode(base, 'modbus')],
-        ['xmodem', crcForMode(base, 'xmodem')],
-      ];
-      const seen = new Set();
-      const crcCandidates = candidates
-        .filter(([, crc]) => crc !== undefined && crc !== null && String(crc).trim())
-        .map(([label, crc]) => [label, String(crc).trim()])
-        .filter(([, crc]) => {
-          if (seen.has(crc)) return false;
-          seen.add(crc);
-          return true;
-        })
-        .map(([label, crc]) => ({ label, command: `${base},${crc}` }));
-      const samplePacket = mapCommandLinesFrom(SAMPLE_MAP_COMMANDS)
-        .find((line) => robotAckKey(line) === robotAckKey(commandValue));
-      if (samplePacket && !crcCandidates.some((candidate) => candidate.command === samplePacket)) {
-          crcCandidates.splice(1, 0, { label: 'protocol-sample-exact', command: samplePacket });
-        }
-      return crcCandidates;
-    }
-
-    async function sendMapCommandWithCrcFallback(commandValue) {
-      if (!commandValue.startsWith('$MAP,')) {
-        const response = await sendMapCommand(commandValue);
-        return { response, command: commandValue };
-      }
-      let lastResponse;
-      let lastError;
-      const candidates = mapCrcCandidates(commandValue);
-      const triedCommands = new Set();
-      let index = 0;
-      while (index < candidates.length && triedCommands.size < AUTO_TEST_MAX_FAILURES + 2) {
-        const candidate = candidates[index];
-        index += 1;
-        if (triedCommands.has(candidate.command)) continue;
-        triedCommands.add(candidate.command);
-        try {
-          const response = await sendMapCommandOnce(candidate.command);
-          lastResponse = response;
-          appendLog(`MAP CRC TRY ${robotAckKey(candidate.command)} ${candidate.label} -> ${response.code} ${response.message || ''}`);
-          if (response.code === '00') {
-            if (candidate.command !== commandValue) appendLog(`MAP CRC FIX ${candidate.label} ${candidate.command}`);
-            return { response, command: candidate.command };
-          }
-          if (response.message !== 'crc fail') break;
-        } catch (error) {
-          lastError = error;
-          appendLog(`MAP CRC TRY ERROR ${candidate.label} ${error.message || error}`);
-        }
-        await sleep(250);
-      }
-      throw new Error(`${robotAckKey(commandValue)} failed: ${lastResponse?.message || lastResponse?.code || lastError?.message || 'unknown'}`);
-    }
-
     function sleep(ms) {
       return new Promise((resolve) => setTimeout(resolve, ms));
     }
@@ -1648,11 +1568,8 @@
         mapSummary.innerHTML = `<div><b>Sending</b>0 / ${lines.length}</div>`;
         for (let index = 0; index < lines.length; index += 1) {
           const commandValue = normalizeRobotCommand(lines[index]);
-          const { response, command } = await sendMapCommandWithCrcFallback(commandValue);
-          lines[index] = command;
-          mapCommands.value = lines.join('\n');
-          localStorage.setItem('mygardenos_map_commands', mapCommands.value);
-          mapSummary.innerHTML = `<div><b>Sending</b>${index + 1} / ${lines.length}</div><div><b>Last command</b>${escapeHtml(command)}</div><div><b>Last ACK</b>${escapeHtml(response.message || response.code || '')}</div>`;
+          const response = await sendMapCommand(commandValue);
+          mapSummary.innerHTML = `<div><b>Sending</b>${index + 1} / ${lines.length}</div><div><b>Last command</b>${escapeHtml(commandValue)}</div><div><b>Last ACK</b>${escapeHtml(response.message || response.code || '')}</div>`;
           if (index < lines.length - 1) await sleep(delay);
         }
         mapSummary.innerHTML += '<div><b>Status</b>Done</div>';
@@ -1681,6 +1598,7 @@
     async function testAllMapHeaderModes() {
       lastAutoHeaderSuccess = false;
       autoHeaderFailedCandidates = 0;
+      const modes = ['protocol-table', 'usb', 'modbus', 'xmodem', 'xmodem-zero', 'ccitt-false'];
       const originalMode = mapCrcMode.value;
       const results = [];
       const originalLines = mapCommandLines().map((line) => {
@@ -1692,70 +1610,71 @@
         return false;
       }
       const headerParts = originalHeader.split(',');
-      const baseHeader = headerParts.slice(0, -1).join(',');
-      const allAreasParts = [...headerParts];
-      for (let index = 9; index <= 18 && index < allAreasParts.length - 1; index += 1) {
-        allAreasParts[index] = '1';
-      }
-      const allAreasBaseHeader = allAreasParts.slice(0, -1).join(',');
-      const protocolExampleLines = mapCommandLinesFrom(SAMPLE_MAP_COMMANDS);
-      const protocolExampleHeader = protocolExampleLines.find((line) => line.startsWith('$MAP,0,0'));
-      const protocolExampleBaseHeader = protocolExampleHeader.split(',').slice(0, -1).join(',');
-      const candidates = [
-        { label: 'current-exact', command: originalHeader, fixedCrc: true },
-        { label: 'protocol-example-exact', command: protocolExampleHeader, lines: protocolExampleLines, fixedCrc: true },
-        { label: 'current-all-areas-usb', command: `${allAreasBaseHeader},${crcForMode(allAreasBaseHeader, 'usb')}`, mode: 'usb' },
-        { label: 'current-all-areas-protocol-table', command: `${allAreasBaseHeader},${crcForMode(allAreasBaseHeader, 'protocol-table')}`, mode: 'protocol-table' },
-        { label: 'protocol-example-protocol-table', command: `${protocolExampleBaseHeader},${crcForMode(protocolExampleBaseHeader, 'protocol-table')}`, lines: protocolExampleLines, mode: 'protocol-table' },
-      ];
+      const currentHeaderMapId = headerParts[5] || '';
+      const candidateMapIds = [
+        currentHeaderMapId,
+        mapId.value.trim(),
+        newMapId.value.trim(),
+        '90191082715388549',
+        '90191082715388547',
+      ].filter(Boolean);
+      const uniqueMapIds = [...new Set(candidateMapIds)];
+      const existingCrc = headerParts.at(-1);
+      const staticCrcCandidates = [...new Set([existingCrc, lastMapAckCrc, '40945', '31577'].filter(Boolean))];
       try {
         testAllMapHeaders.disabled = true;
-        mapSummary.innerHTML = '<div><b>Auto header</b>Testing 5 protocol-informed candidates...</div>';
-        for (const candidate of candidates) {
-          if (autoRunCancelled) throw new Error('Auto test stopped');
-          const crc = candidate.command.split(',').at(-1);
-          mapSummary.innerHTML = `<div><b>Auto header</b>${escapeHtml(candidate.label)} · crc ${escapeHtml(crc)}</div><div><b>Tested</b>${results.length}</div>`;
-          try {
-            const response = await sendMapCommandOnce(candidate.command);
-            results.push([candidate.label, crc, response.code || '-', response.message || '', candidate.command]);
-            if (response.code === '00') {
-              const updatedLines = candidate.lines
-                ? [...candidate.lines]
-                : [candidate.command, ...protocolSampleRegionTail()];
-              mapCommandsUseFixedCrc = true;
-              if (candidate.mode) mapCrcMode.value = candidate.mode;
-              mapCommands.value = updatedLines.join('\n');
-              localStorage.setItem('mygardenos_map_commands', mapCommands.value);
-              mapId.value = candidate.command.split(',')[5] || mapId.value;
-              mapSummary.innerHTML = `<div><b>Auto header success</b>${escapeHtml(candidate.label)}</div><div><b>Map ID</b>${escapeHtml(mapId.value)}</div><div><b>CRC</b>${escapeHtml(crc)}</div>`;
-              appendLog(`AUTO HEADER SUCCESS ${candidate.label} ${candidate.command}`);
-              lastAutoHeaderSuccess = true;
-              renderMapCommandSummary();
-              return true;
+        mapSummary.innerHTML = '<div><b>Auto header</b>Starting sweep...</div>';
+        for (const candidateMapId of uniqueMapIds) {
+          const candidateParts = [...headerParts];
+          candidateParts[5] = candidateMapId;
+          const baseHeader = candidateParts.slice(0, -1).join(',');
+          const dynamicCandidates = modes.map((mode) => {
+            mapCrcMode.value = mode;
+            return { label: mode, command: `${baseHeader},${mapCrc(baseHeader)}` };
+          });
+          const fixedCandidates = staticCrcCandidates.map((crc) => ({ label: `fixed-${crc}`, command: `${baseHeader},${crc}` }));
+          const candidates = [...dynamicCandidates, ...fixedCandidates];
+          for (const candidate of candidates) {
+            if (autoRunCancelled) throw new Error('Auto test stopped');
+            const crc = candidate.command.split(',').at(-1);
+            mapSummary.innerHTML = `<div><b>Auto header</b>${escapeHtml(candidateMapId)} · ${escapeHtml(candidate.label)} · crc ${escapeHtml(crc)}</div><div><b>Tested</b>${results.length}</div>`;
+            try {
+              const response = await sendMapCommandOnce(candidate.command);
+              results.push([candidateMapId, candidate.label, crc, response.code || '-', response.message || '']);
+              if (response.code === '00') {
+                const updatedLines = originalLines.map((line) => line.startsWith('$MAP,0,0') ? candidate.command : line);
+                mapCommands.value = updatedLines.join('\n');
+                localStorage.setItem('mygardenos_map_commands', mapCommands.value);
+                mapId.value = candidateMapId;
+                mapSummary.innerHTML = `<div><b>Auto header success</b>${escapeHtml(candidate.label)}</div><div><b>Map ID</b>${escapeHtml(candidateMapId)}</div><div><b>CRC</b>${escapeHtml(crc)}</div>`;
+                appendLog(`AUTO HEADER SUCCESS ${candidate.label} ${candidate.command}`);
+                lastAutoHeaderSuccess = true;
+                renderMapCommandSummary();
+                return true;
+              }
+              autoHeaderFailedCandidates += 1;
+            } catch (error) {
+              results.push([candidateMapId, candidate.label, crc, 'error', error.message || String(error)]);
+              autoHeaderFailedCandidates += 1;
             }
-            autoHeaderFailedCandidates += 1;
-          } catch (error) {
-            results.push([candidate.label, crc, 'error', error.message || String(error), candidate.command]);
-            autoHeaderFailedCandidates += 1;
+            if (autoHeaderFailedCandidates >= AUTO_TEST_MAX_FAILURES) {
+              autoRunFailureCount = AUTO_TEST_MAX_FAILURES;
+              localStorage.setItem('mygardenos_auto_test_failures', String(autoRunFailureCount));
+              appendLog(`AUTO HEADER stopped after ${AUTO_TEST_MAX_FAILURES} failed candidates`);
+              renderAutoStopSummary(`Header test failed ${AUTO_TEST_MAX_FAILURES} candidates. Share the command list below with vendor support.`);
+              return false;
+            }
+            await sleep(250);
           }
-          if (autoHeaderFailedCandidates >= AUTO_TEST_MAX_FAILURES) {
-            autoRunFailureCount = AUTO_TEST_MAX_FAILURES;
-            localStorage.setItem('mygardenos_auto_test_failures', String(autoRunFailureCount));
-            appendLog(`AUTO HEADER stopped after ${AUTO_TEST_MAX_FAILURES} failed candidates`);
-            renderAutoStopSummary(`Header test failed ${AUTO_TEST_MAX_FAILURES} protocol-informed candidates. Share the command list below with vendor support.`);
-            return false;
-          }
-          await sleep(250);
         }
-        mapSummary.innerHTML = results.map(([label, crc, code, message]) =>
-          `<div><b>${escapeHtml(label)}</b>crc ${escapeHtml(crc)} · ${escapeHtml(code)} · ${escapeHtml(message)}</div>`
+        mapSummary.innerHTML = results.slice(-12).map(([candidateMapId, label, crc, code, message]) =>
+          `<div><b>${escapeHtml(label)}</b>${escapeHtml(candidateMapId)} · crc ${escapeHtml(crc)} · ${escapeHtml(code)} · ${escapeHtml(message)}</div>`
         ).join('');
       } finally {
         testAllMapHeaders.disabled = false;
-        if (!results.some(([, , code]) => code === '00')) {
+        if (!results.some(([, , , code]) => code === '00')) {
           mapCrcMode.value = originalMode;
-          mapCommandsUseFixedCrc = true;
-          mapCommands.value = originalLines.join('\n');
+          mapCommands.value = originalLines.map((line) => line.startsWith('$MAP,') ? recalculateMapCrc(line) : line).join('\n');
           localStorage.setItem('mygardenos_map_commands', mapCommands.value);
         }
       }
@@ -2106,7 +2025,6 @@
     const savedMapCommands = localStorage.getItem('mygardenos_map_commands') || '';
     const defaultMapApplied = localStorage.getItem('mygardenos_default_map_version') === DEFAULT_MAP_VERSION;
     mapCommands.value = (!defaultMapApplied || !savedMapCommands || savedMapCommands === SAMPLE_MAP_COMMANDS) ? DEFAULT_MAP_COMMANDS : savedMapCommands;
-    mapCommandsUseFixedCrc = true;
     if (!defaultMapApplied || !capturedMapCommands.value || capturedMapCommands.value === SAMPLE_MAP_COMMANDS) capturedMapCommands.value = DEFAULT_MAP_COMMANDS;
     if (mapCommands.value === DEFAULT_MAP_COMMANDS) {
       mapId.value = '90191082715388549';

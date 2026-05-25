@@ -499,7 +499,7 @@
     const SERVICE_UUID = '0000fff0-0000-1000-8000-00805f9b34fb';
     const READ_UUID = '0000fff1-0000-1000-8000-00805f9b34fb';
     const WRITE_UUID = '0000fff2-0000-1000-8000-00805f9b34fb';
-    const DEFAULT_MAP_VERSION = 'manual-map-90191082715388549-v3-sample-region-tail';
+    const DEFAULT_MAP_VERSION = 'manual-map-90191082715388549-v2-new-protocol';
     const SAMPLE_MAP_COMMANDS = [
       '$MAP,0,0,0,0,90191082715388544,2,1,45.3,1,1,1,1,1,1,1,1,1,1,62785',
       '$ACTION,5,0',
@@ -1306,10 +1306,6 @@
         .filter((line) => line && !line.startsWith('#'));
     }
 
-    function protocolSampleRegionTail() {
-      return mapCommandLinesFrom(SAMPLE_MAP_COMMANDS).filter((line) => !line.startsWith('$MAP,0,0'));
-    }
-
     function crc16Usb(value) {
       let crc = 0xffff;
       for (const byte of new TextEncoder().encode(value)) {
@@ -1533,67 +1529,6 @@
       });
     }
 
-    function mapCrcCandidates(commandValue) {
-      const base = commandValue.split(',').slice(0, -1).join(',');
-      const existingCrc = commandValue.split(',').at(-1);
-      const candidates = [
-        ['current', existingCrc],
-        ['usb', crcForMode(base, 'usb')],
-        ['protocol-table', crcForMode(base, 'protocol-table')],
-        ['modbus', crcForMode(base, 'modbus')],
-        ['xmodem', crcForMode(base, 'xmodem')],
-      ];
-      const seen = new Set();
-      const crcCandidates = candidates
-        .filter(([, crc]) => crc !== undefined && crc !== null && String(crc).trim())
-        .map(([label, crc]) => [label, String(crc).trim()])
-        .filter(([, crc]) => {
-          if (seen.has(crc)) return false;
-          seen.add(crc);
-          return true;
-        })
-        .map(([label, crc]) => ({ label, command: `${base},${crc}` }));
-      const samplePacket = mapCommandLinesFrom(SAMPLE_MAP_COMMANDS)
-        .find((line) => robotAckKey(line) === robotAckKey(commandValue));
-      if (samplePacket && !crcCandidates.some((candidate) => candidate.command === samplePacket)) {
-          crcCandidates.splice(1, 0, { label: 'protocol-sample-exact', command: samplePacket });
-        }
-      return crcCandidates;
-    }
-
-    async function sendMapCommandWithCrcFallback(commandValue) {
-      if (!commandValue.startsWith('$MAP,')) {
-        const response = await sendMapCommand(commandValue);
-        return { response, command: commandValue };
-      }
-      let lastResponse;
-      let lastError;
-      const candidates = mapCrcCandidates(commandValue);
-      const triedCommands = new Set();
-      let index = 0;
-      while (index < candidates.length && triedCommands.size < AUTO_TEST_MAX_FAILURES + 2) {
-        const candidate = candidates[index];
-        index += 1;
-        if (triedCommands.has(candidate.command)) continue;
-        triedCommands.add(candidate.command);
-        try {
-          const response = await sendMapCommandOnce(candidate.command);
-          lastResponse = response;
-          appendLog(`MAP CRC TRY ${robotAckKey(candidate.command)} ${candidate.label} -> ${response.code} ${response.message || ''}`);
-          if (response.code === '00') {
-            if (candidate.command !== commandValue) appendLog(`MAP CRC FIX ${candidate.label} ${candidate.command}`);
-            return { response, command: candidate.command };
-          }
-          if (response.message !== 'crc fail') break;
-        } catch (error) {
-          lastError = error;
-          appendLog(`MAP CRC TRY ERROR ${candidate.label} ${error.message || error}`);
-        }
-        await sleep(250);
-      }
-      throw new Error(`${robotAckKey(commandValue)} failed: ${lastResponse?.message || lastResponse?.code || lastError?.message || 'unknown'}`);
-    }
-
     function sleep(ms) {
       return new Promise((resolve) => setTimeout(resolve, ms));
     }
@@ -1648,11 +1583,8 @@
         mapSummary.innerHTML = `<div><b>Sending</b>0 / ${lines.length}</div>`;
         for (let index = 0; index < lines.length; index += 1) {
           const commandValue = normalizeRobotCommand(lines[index]);
-          const { response, command } = await sendMapCommandWithCrcFallback(commandValue);
-          lines[index] = command;
-          mapCommands.value = lines.join('\n');
-          localStorage.setItem('mygardenos_map_commands', mapCommands.value);
-          mapSummary.innerHTML = `<div><b>Sending</b>${index + 1} / ${lines.length}</div><div><b>Last command</b>${escapeHtml(command)}</div><div><b>Last ACK</b>${escapeHtml(response.message || response.code || '')}</div>`;
+          const response = await sendMapCommand(commandValue);
+          mapSummary.innerHTML = `<div><b>Sending</b>${index + 1} / ${lines.length}</div><div><b>Last command</b>${escapeHtml(commandValue)}</div><div><b>Last ACK</b>${escapeHtml(response.message || response.code || '')}</div>`;
           if (index < lines.length - 1) await sleep(delay);
         }
         mapSummary.innerHTML += '<div><b>Status</b>Done</div>';
@@ -1721,8 +1653,8 @@
             if (response.code === '00') {
               const updatedLines = candidate.lines
                 ? [...candidate.lines]
-                : [candidate.command, ...protocolSampleRegionTail()];
-              mapCommandsUseFixedCrc = true;
+                : originalLines.map((line) => line.startsWith('$MAP,0,0') ? candidate.command : line);
+              mapCommandsUseFixedCrc = Boolean(candidate.fixedCrc);
               if (candidate.mode) mapCrcMode.value = candidate.mode;
               mapCommands.value = updatedLines.join('\n');
               localStorage.setItem('mygardenos_map_commands', mapCommands.value);
@@ -2106,7 +2038,6 @@
     const savedMapCommands = localStorage.getItem('mygardenos_map_commands') || '';
     const defaultMapApplied = localStorage.getItem('mygardenos_default_map_version') === DEFAULT_MAP_VERSION;
     mapCommands.value = (!defaultMapApplied || !savedMapCommands || savedMapCommands === SAMPLE_MAP_COMMANDS) ? DEFAULT_MAP_COMMANDS : savedMapCommands;
-    mapCommandsUseFixedCrc = true;
     if (!defaultMapApplied || !capturedMapCommands.value || capturedMapCommands.value === SAMPLE_MAP_COMMANDS) capturedMapCommands.value = DEFAULT_MAP_COMMANDS;
     if (mapCommands.value === DEFAULT_MAP_COMMANDS) {
       mapId.value = '90191082715388549';

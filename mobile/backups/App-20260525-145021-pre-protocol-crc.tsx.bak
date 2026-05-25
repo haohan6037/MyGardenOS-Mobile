@@ -16,7 +16,7 @@ import { LoginScreen } from './src/screens/LoginScreen';
 type Route = 'home'|'login'|'addDevice'|'deviceDetail'|'mapTool'|'profile'|'account'|'families'|'familyDetail'|'notifications'|'notificationSettings'|'help'|'operationHelp'|'article'|'about'|'general'|'text';
 type ScheduleTime = { hour: number; minute: number; period: 'AM' | 'PM' };
 type MapPoint = { x: number; y: number; yaw: number };
-type MapCrcMode = 'protocol-table' | 'usb' | 'modbus' | 'xmodem' | 'xmodem-zero' | 'ccitt-false';
+type MapCrcMode = 'usb' | 'modbus' | 'xmodem' | 'xmodem-zero' | 'ccitt-false';
 declare const require: any;
 
 export default function App() {
@@ -453,11 +453,6 @@ function crc16Modbus(value: string) {
   return crc;
 }
 
-function crc16ProtocolTable(value: string) {
-  const crc = crc16Modbus(value);
-  return ((crc & 255) << 8) | (crc >>> 8);
-}
-
 function crc16Xmodem(value: string, appendZeros = false, init = 0) {
   let crc = init;
   const bytes = value.split('').map((char) => char.charCodeAt(0) & 255);
@@ -472,7 +467,6 @@ function crc16Xmodem(value: string, appendZeros = false, init = 0) {
 }
 
 function mapCrc(value: string, mode: MapCrcMode) {
-  if (mode === 'protocol-table') return crc16ProtocolTable(value);
   if (mode === 'modbus') return crc16Modbus(value);
   if (mode === 'xmodem') return crc16Xmodem(value);
   if (mode === 'xmodem-zero') return crc16Xmodem(value, true);
@@ -511,7 +505,7 @@ function RobotMapTool({device,onBack}:{device?:Device;onBack:()=>void}) {
   const [recordMinDistance,setRecordMinDistance]=useState('0.10');
   const [pointsPerPacket,setPointsPerPacket]=useState('10');
   const [commandDelay,setCommandDelay]=useState('900');
-  const [crcMode,setCrcMode]=useState<MapCrcMode>('protocol-table');
+  const [crcMode,setCrcMode]=useState<MapCrcMode>('usb');
   const [bleWriteMode,setBleWriteMode]=useState<'whole'|'chunked'>('whole');
   const [chunkConfig,setChunkConfig]=useState('20,35');
   const [recording,setRecording]=useState(false);
@@ -860,7 +854,7 @@ function RobotMapTool({device,onBack}:{device?:Device;onBack:()=>void}) {
   };
 
   const testAllCrcModes = async () => {
-    const modes: MapCrcMode[] = ['protocol-table','usb','modbus','xmodem','xmodem-zero','ccitt-false'];
+    const modes: MapCrcMode[] = ['usb','modbus','xmodem','xmodem-zero','ccitt-false'];
     for (const mode of modes) {
       try {
         const firstMap = buildManualMapCommands(mode).find((line)=>line.startsWith('$MAP,0,0'));
@@ -942,7 +936,7 @@ function RobotMapTool({device,onBack}:{device?:Device;onBack:()=>void}) {
       <Card>
         <Text style={s.mapSectionTitle}>Generated / Captured Commands</Text>
         <View style={s.mapModeRow}>
-          {(['protocol-table','usb','modbus','xmodem','xmodem-zero','ccitt-false'] as MapCrcMode[]).map((mode)=><Pressable key={mode} style={[s.modeChip, crcMode===mode && s.modeChipActive]} onPress={()=>setCrcMode(mode)}><Text style={[s.modeChipText, crcMode===mode && s.modeChipTextActive]}>{mode}</Text></Pressable>)}
+          {(['usb','modbus','xmodem','xmodem-zero','ccitt-false'] as MapCrcMode[]).map((mode)=><Pressable key={mode} style={[s.modeChip, crcMode===mode && s.modeChipActive]} onPress={()=>setCrcMode(mode)}><Text style={[s.modeChipText, crcMode===mode && s.modeChipTextActive]}>{mode}</Text></Pressable>)}
         </View>
         <View style={s.mapActionRow}>
           <Button title="Generate" onPress={generateMap} variant="light" />
