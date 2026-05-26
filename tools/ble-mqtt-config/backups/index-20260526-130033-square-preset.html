@@ -445,7 +445,6 @@
               <button id="stopRecordingMap" class="secondary">Stop Recording</button>
               <button id="clearRecordedMap" class="secondary">Clear Points</button>
               <button id="generateManualMap" class="secondary">Generate Map From Points</button>
-              <button id="generateLeftSquareMap" class="secondary">Generate 1.5m Left Square</button>
             </div>
             <div class="remote-pad">
               <button class="secondary" data-control="5" disabled>Forward Left</button>
@@ -592,7 +591,6 @@
     const stopRecordingMap = document.querySelector('#stopRecordingMap');
     const clearRecordedMap = document.querySelector('#clearRecordedMap');
     const generateManualMap = document.querySelector('#generateManualMap');
-    const generateLeftSquareMap = document.querySelector('#generateLeftSquareMap');
     const manualMapCanvas = document.querySelector('#manualMapCanvas');
     const controlButtons = [...document.querySelectorAll('[data-control]')];
     const capturedMapCommands = document.querySelector('#capturedMapCommands');
@@ -1199,83 +1197,6 @@
       return commands;
     }
 
-    function vectorFromYaw(yawDegrees) {
-      const radians = yawDegrees * Math.PI / 180;
-      return { x: Math.cos(radians), y: Math.sin(radians) };
-    }
-
-    function addVector(point, vector, distance) {
-      return {
-        x: point.x + vector.x * distance,
-        y: point.y + vector.y * distance,
-        yaw: point.yaw,
-      };
-    }
-
-    function mapPacketCommand(areaId, contentType, packetIndex, points) {
-      const coords = points.flatMap((point) => [mapPointValue(point.x), mapPointValue(point.y)]).join(',');
-      return commandWithCrc(`$MAP,${areaId},${contentType},${packetIndex},${points.length},${coords}`);
-    }
-
-    function appendPointPackets(commands, areaId, contentType, points, chunkSize) {
-      for (let index = 0; index < points.length; index += chunkSize) {
-        const chunk = points.slice(index, index + chunkSize);
-        commands.push(mapPacketCommand(areaId, contentType, Math.floor(index / chunkSize), chunk));
-      }
-    }
-
-    function generateLeftSquareMapCommands() {
-      const dock = parseDockPose();
-      if (!dock) {
-        mapSummary.innerHTML = '<div><b>Error</b>Dock pose is invalid</div>';
-        return;
-      }
-      mapCrcMode.value = 'usb';
-      const mapIdValue = newMapId.value.trim() || nextMapId();
-      newMapId.value = mapIdValue;
-      const areaId = manualAreaId.value.trim() || '1';
-      const side = 1.5;
-      const inset = 0.2;
-      const start = poseAhead(dock, Math.max(0, Number.parseFloat(leaveDockDistance.value) || 1));
-      const forward = vectorFromYaw(dock.yaw);
-      const left = vectorFromYaw(dock.yaw + 90);
-      const p0 = start;
-      const p1 = addVector(p0, left, side);
-      const p2 = addVector(p1, forward, side);
-      const p3 = addVector(p0, forward, side);
-      const boundaryPoints = [p0, p1, p2, p3, p0];
-      const workOffsets = [0.25, 0.75, 1.25];
-      const workPoints = [];
-      workOffsets.forEach((offset, index) => {
-        const lineStart = addVector(addVector(p0, left, offset), forward, inset);
-        const lineEnd = addVector(addVector(p0, left, offset), forward, side - inset);
-        if (index % 2 === 0) {
-          workPoints.push(lineStart, lineEnd);
-        } else {
-          workPoints.push(lineEnd, lineStart);
-        }
-      });
-      const chargePath = [workPoints[workPoints.length - 1], p0];
-      const flags = Array(10).fill('1').join(',');
-      const header = commandWithCrc(`$MAP,0,0,0,0,${mapIdValue},${mapPointValue(dock.x)},${mapPointValue(dock.y)},${Number.isFinite(dock.yaw) ? dock.yaw.toFixed(1) : '0'},${flags}`);
-      const commands = [header, '$ACTION,5,0'];
-      const chunkSize = Math.max(1, Math.min(10, Number.parseInt(mapPacketPointCount.value, 10) || 5));
-      appendPointPackets(commands, areaId, '1', boundaryPoints, chunkSize);
-      appendPointPackets(commands, areaId, '2', workPoints, 10);
-      appendPointPackets(commands, areaId, '3', chargePath, 10);
-      commands.push('$ACTION,5,1');
-      recordedPoints = boundaryPoints.map((point) => ({ ...point }));
-      mappingStartPoint = { ...p0 };
-      persistRecordedPoints();
-      localStorage.setItem('mygardenos_mapping_start_point', JSON.stringify(mappingStartPoint));
-      mapCommandsUseFixedCrc = false;
-      mapCommands.value = commands.join('\n');
-      localStorage.setItem('mygardenos_map_commands', mapCommands.value);
-      drawManualMap();
-      renderMapCommandSummary();
-      mapSummary.innerHTML += '<div><b>Preset</b>1m out, then 1.5m square to the left. CRC mode: USB.</div>';
-    }
-
     async function enterRemoteModeForMap() {
       try {
         await sendCommand('$ACTION,0', 'Enter remote mode');
@@ -1634,7 +1555,7 @@
         .map(([label, crc]) => ({ label, command: `${base},${crc}` }));
       const samplePacket = mapCommandLinesFrom(SAMPLE_MAP_COMMANDS)
         .find((line) => robotAckKey(line) === robotAckKey(commandValue));
-      if (mapCommandsUseFixedCrc && samplePacket && !crcCandidates.some((candidate) => candidate.command === samplePacket)) {
+      if (samplePacket && !crcCandidates.some((candidate) => candidate.command === samplePacket)) {
           crcCandidates.splice(1, 0, { label: 'protocol-sample-exact', command: samplePacket });
         }
       return crcCandidates;
@@ -2137,7 +2058,6 @@
     stopRecordingMap.addEventListener('click', stopManualMapRecording);
     clearRecordedMap.addEventListener('click', clearManualMapRecording);
     generateManualMap.addEventListener('click', generateManualMapCommands);
-    generateLeftSquareMap.addEventListener('click', generateLeftSquareMapCommands);
     clearCapturedMap.addEventListener('click', () => {
       capturedMapCommands.value = '';
       localStorage.removeItem('mygardenos_captured_map_commands');
